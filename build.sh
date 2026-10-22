@@ -2,7 +2,8 @@
 # 构建一个底层包 profile。
 # 用法：./build.sh [<chip>/<profile>]，默认 bl616cl/default。
 # SDK 与工具链按 sources.json 固定版本获取到 work/，构建在 work/build/ 中进行，
-# 不修改 SDK 检出目录。BL_BUILDER_WORK 可改变 work 目录位置。
+# 不修改 SDK 检出目录：构建使用 tools/prepare_sdk_tree.py 由检出生成的 <构建目录>.sdk，
+# sources.json 中的 SDK 补丁只打在这份目录上。BL_BUILDER_WORK 可改变 work 目录位置。
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -11,6 +12,7 @@ PROFILE=${1:-bl616cl/default}
 PROFILE_DIR=$ROOT/profiles/$PROFILE
 SDK=$WORK/bouffalo_sdk
 BUILD=$WORK/build/${PROFILE//\//-}
+SDK_TREE=$BUILD.sdk
 
 [ -d "$PROFILE_DIR" ] || { echo "unknown profile: $PROFILE" >&2; exit 2; }
 
@@ -57,8 +59,10 @@ build_profile() {
     rm -rf "$BUILD"
     mkdir -p "$(dirname "$BUILD")"
     cp -r "$PROFILE_DIR" "$BUILD"
-    PATH=$TOOLCHAIN/bin:$PATH PYTHONDONTWRITEBYTECODE=1 \
-        make -C "$BUILD" BL_SDK_BASE="$SDK" VERBOSE=1 >"$BUILD.log" 2>&1 \
+    python3 -I "$ROOT/tools/prepare_sdk_tree.py" --sdk "$SDK" --sources "$ROOT/sources.json" --out "$SDK_TREE"
+    # SDK 在构建时用 git 生成版本信息（提交号、lhal 版本）；指向检出的仓库，打过补丁时带 dirty 标记
+    GIT_DIR=$SDK/.git GIT_WORK_TREE=$SDK_TREE PATH=$TOOLCHAIN/bin:$PATH PYTHONDONTWRITEBYTECODE=1 \
+        make -C "$BUILD" BL_SDK_BASE="$SDK_TREE" VERBOSE=1 >"$BUILD.log" 2>&1 \
         || { grep -E -m 20 'error:|undefined reference|Error [0-9]' "$BUILD.log" >&2 || true
              echo "build failed, log: $BUILD.log" >&2; exit 1; }
     [ -z "$(git -C "$SDK" status --porcelain --ignored)" ] || { echo "build modified SDK checkout: $SDK" >&2; exit 1; }

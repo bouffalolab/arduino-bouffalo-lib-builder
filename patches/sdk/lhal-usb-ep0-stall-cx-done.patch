@@ -1,0 +1,31 @@
+usb: complete the EP0 control transfer when stalling it
+
+usbd_ep_set_stall() only set USB_CX_STL for EP0. After the stack stalls an
+OUT control request (with or without a data stage), the controller ignores
+every following control transfer until the next bus reset; IN requests are
+not affected. Setting USB_CX_DONE after USB_CX_STL lets the next SETUP be
+handled. Measured on BL616CL with CherryUSB CDC ACM (Linux host, usbfs):
+without this change EP0 stops after the first stalled vendor OUT request;
+with it 50 of 50 rounds recover.
+
+Applies to drivers/lhal/src/bflb_usb_v2.c of bouffalo_sdk v2.3.37
+(identical to lhal master 911501a).
+Upstream review: https://gerrit.bouffalolab.com/c/bouffalo/drivers/lhal/+/11805
+Drop this patch when sources.json moves to an SDK release that contains it.
+
+--- a/drivers/lhal/src/bflb_usb_v2.c
++++ b/drivers/lhal/src/bflb_usb_v2.c
+@@ -1198,6 +1198,13 @@
+         regval = getreg32(BFLB_USB_BASE + USB_DEV_CXCFE_OFFSET);
+         regval |= USB_CX_STL;
+         putreg32(regval, BFLB_USB_BASE + USB_DEV_CXCFE_OFFSET);
++
++        /* Also complete the control transfer. Otherwise, after an OUT request
++         * is stalled, the controller ignores every following control transfer
++         * until the next bus reset. */
++        regval = getreg32(BFLB_USB_BASE + USB_DEV_CXCFE_OFFSET);
++        regval |= USB_CX_DONE;
++        putreg32(regval, BFLB_USB_BASE + USB_DEV_CXCFE_OFFSET);
+     } else {
+         if (USB_EP_DIR_IS_OUT(ep)) {
+             regval = getreg32(BFLB_USB_BASE + USB_DEV_OUTMPS1_OFFSET + (ep_idx - 1) * 4);

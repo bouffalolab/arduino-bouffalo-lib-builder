@@ -34,6 +34,9 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from prepare_sdk_tree import check_tree  # noqa: E402
+
 HEADER_SUFFIXES = {".h", ".hpp", ".inc"}
 
 # 后面紧跟一个独立参数的编译选项
@@ -330,6 +333,17 @@ def is_previous_export(path):
     return isinstance(manifest, dict) and {"name", "version", "files"} <= manifest.keys()
 
 
+def sdk_tree(tree_arg, sdk, pinned):
+    """构建所用的 SDK 目录。sources.json 列有补丁时，必须给出 prepare_sdk_tree.py 生成的目录。"""
+    if tree_arg is None:
+        if pinned.get("patches"):
+            raise ValueError("sources.json lists SDK patches; pass --sdk-tree with the patched build tree")
+        return sdk
+    tree = Path(tree_arg).resolve()
+    check_tree(tree, pinned)
+    return tree
+
+
 def check_replaceable(out):
     """out 只能不存在、是空目录或本工具以前的导出，避免误删其他目录。"""
     if out.exists() and not (out.is_dir() and (not any(out.iterdir()) or is_previous_export(out))):
@@ -362,10 +376,12 @@ def write_package(args, out):
     sdk_state = git_state(sdk)
     if sdk_state != {"commit": sources["sdk"]["commit"], "dirty": False}:
         raise ValueError("SDK checkout %s does not match sources.json: %r" % (sdk, sdk_state))
+    # 构建所用的 SDK 目录：头文件与 include 路径按它映射，补丁由它的标记核对
+    tree = sdk_tree(args.sdk_tree, sdk, sources["sdk"])
     for sub in ("include", "lib", "ld", "boot", "flags"):
         (out / sub).mkdir(parents=True)
 
-    roots = [(str(sdk), "sdk"), (str(cmake_dir), "build"), (str(project), "profile")]
+    roots = [(str(tree), "sdk"), (str(cmake_dir), "build"), (str(project), "profile")]
 
     # 编译参数
     entries = json.loads((cmake_dir / "compile_commands.json").read_text())
@@ -387,16 +403,16 @@ def write_package(args, out):
         rel = map_include_dir(d, roots)
         include_rel.append(rel)
         # SDK 根目录也在全局 include 路径中，递归会带入整个 SDK；它只按依赖文件补齐
-        if os.path.normpath(d) == str(sdk):
+        if os.path.normpath(d) == str(tree):
             continue
         copy_headers(d, out / "include" / rel, copied, skip_dirs=[str(cmake_dir)])
 
     # 补齐构建实际用到、但不在上面目录中的 SDK 头文件
     for dep in cmake_dir.rglob("*.d"):
         for h in depfile_headers(dep.read_text(errors="replace")):
-            if not h.startswith(str(sdk) + os.sep):
+            if not h.startswith(str(tree) + os.sep):
                 continue
-            dst = out / "include" / "sdk" / os.path.relpath(h, sdk)
+            dst = out / "include" / "sdk" / os.path.relpath(h, tree)
             if dst not in copied and not dst.exists():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(h, dst)
@@ -503,6 +519,7 @@ def main(argv=None):
     p.add_argument("--build", required=True, help="profile 构建目录，如 work/build/bl616cl-default")
     p.add_argument("--build-log", required=True, help="build.sh 生成的构建日志")
     p.add_argument("--sdk", required=True, help="SDK 检出目录")
+    p.add_argument("--sdk-tree", help="构建所用的 SDK 目录（build.sh 生成的 <构建目录>.sdk）；不给时为检出目录，此时不能有补丁")
     p.add_argument("--toolchain-bin", required=True, help="构建所用工具链的 bin 目录")
     p.add_argument("--sources", required=True, help="sources.json")
     p.add_argument("--profile", required=True, help="<chip>/<profile>")

@@ -10,14 +10,15 @@
 ./build.sh                          # 获取固定版本的 SDK 与工具链，构建 profiles/bl616cl/default
 python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
-  --sdk work/bouffalo_sdk --sources sources.json \
+  --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.3.0 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.3.1 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
   work/bouffalo_sdk work/build      # 之后的参数是测试时要隐藏的路径，原包目录会自动隐藏
 python3 tools/test_export_package.py # 导出逻辑的单元测试；设置 BL_TEST_GCC 时额外用真实 gcc 检查
+python3 tools/test_prepare_sdk_tree.py
 python3 tools/export_flash_tools.py \
   --sdk work/bouffalo_sdk --sources sources.json --chip bl616cl \
   --version 0.1.0 --out work/out/bl-flash-tools
@@ -27,6 +28,16 @@ tools/install_check.sh ../arduino-bl \
 ```
 
 `sources.json` 固定 SDK（公网 bouffalo_sdk v2.3.37）和工具链（Xuantie GCC 10.2.0 V2.6.1）的来源与校验值。`work/` 存放检出、下载和构建输出，不入库。构建在 `work/build/` 中进行；构建前后 SDK 检出目录都必须没有任何改动或新增文件（含被忽略的文件），否则 `build.sh` 报错。导出时核对 SDK 检出与 `sources.json` 一致；`--out` 只会替换空目录或以前的导出。
+
+## SDK 补丁
+
+构建不直接使用检出目录：`tools/prepare_sdk_tree.py` 把检出中的已跟踪文件硬链接到 `work/build/<profile>.sdk`，再按 `sources.json` 的 `sdk.patches` 顺序打补丁（核对 sha256）；被补丁改动的文件先换成独立拷贝，检出目录保持不变。SDK 构建时用 git 生成版本信息，`build.sh` 让它读检出的仓库，打过补丁的库中版本带 dirty 标记（如 lhal `v2.3.37-dirty`）。导出用 `--sdk-tree` 指向这份目录，核对其中记录的提交与补丁和 `sources.json` 一致；补丁清单随 `sdk` 写入包的 manifest。
+
+补丁放在 `patches/sdk/`，路径相对 SDK 根目录（`-p1`），文件开头写明问题、证据、上游提交和删除条件。修复先提交到上游，合入主线后随 bouffalo_sdk 公网版本发布；`sources.json` 升级到包含它的版本时删除对应补丁。
+
+| 补丁 | 内容 | 上游 |
+| --- | --- | --- |
+| `lhal-usb-ep0-stall-cx-done.patch` | USB 设备驱动 stall EP0 时同时写 `USB_CX_DONE`；否则 OUT 控制请求被拒后 EP0 不再响应，直到总线复位 | Gerrit lhal 11805 |
 
 ## profile
 

@@ -5,6 +5,7 @@
 漏掉全局 define 或 include 会让结构体布局不一致，带入路径相关参数会破坏可重定位。
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -192,6 +193,27 @@ class CheckReplaceableTest(unittest.TestCase):
             ep.check_replaceable(Path(d))
             (Path(d) / "manifest.json").write_text('{"name": "x-libs", "version": "0", "files": []}')
             ep.check_replaceable(Path(d))
+
+
+class SdkTreeTest(unittest.TestCase):
+    """打过补丁的包必须由打过同样补丁的 SDK 目录构建，否则 manifest 声明的补丁与库内容对不上。"""
+
+    def test_patches_require_build_tree(self):
+        pinned = {"commit": "c" * 40, "patches": [{"file": "patches/x.patch", "sha256": "0" * 64}]}
+        with self.assertRaises(ValueError):
+            ep.sdk_tree(None, Path("/sdk"), pinned)
+
+    def test_without_patches_checkout_is_used(self):
+        self.assertEqual(ep.sdk_tree(None, Path("/sdk"), {"commit": "c" * 40}), Path("/sdk"))
+
+    def test_tree_marker_must_match(self):
+        import prepare_sdk_tree as pst
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / pst.MARKER).write_text(json.dumps({"commit": "c" * 40, "patches": []}))
+            self.assertEqual(ep.sdk_tree(d, Path("/sdk"), {"commit": "c" * 40}), Path(d).resolve())
+            with self.assertRaises(ValueError):
+                ep.sdk_tree(d, Path("/sdk"), {"commit": "c" * 40,
+                                               "patches": [{"file": "patches/x.patch", "sha256": "0" * 64}]})
 
 
 class MapMembersTest(unittest.TestCase):

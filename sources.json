@@ -2,7 +2,13 @@
   "sdk": {
     "repo": "https://github.com/bouffalolab/bouffalo_sdk.git",
     "tag": "v2.3.37",
-    "commit": "f924fbb2fe2ba98430cb4da940861beeb8c0682b"
+    "commit": "f924fbb2fe2ba98430cb4da940861beeb8c0682b",
+    "patches": [
+      {
+        "file": "patches/sdk/lhal-usb-ep0-stall-cx-done.patch",
+        "sha256": "e196c887844c4d91825d785156aec4d3a0e352f8b0610039fa2ec5b1d3c7f03f"
+      }
+    ]
   },
   "toolchain": {
     "name": "Xuantie-900 GCC 10.2.0 V2.6.1 B-20220906",
