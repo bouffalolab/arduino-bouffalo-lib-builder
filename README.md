@@ -2,7 +2,7 @@
 
 为 arduino-bl 构建和发布版本化底层依赖包。完整 SDK 的获取、配置和补丁只在此类维护者流程中处理。
 
-当前阶段：能构建并导出 BL616CL 首个本地包 `bl616cl-libs`（profile `default`：FreeRTOS、lwIP、Wi-Fi STA（wl80211）、CherryUSB device CDC，BLE 关闭），尚未发布。
+当前阶段：能构建并导出 BL616CL 首个本地包 `bl616cl-libs`（profile `default`：FreeRTOS、lwIP、Wi-Fi STA（wl80211）、CherryUSB device CDC，BLE 关闭），以及镜像后处理与烧录工具包 `bl-flash-tools`，尚未发布。
 
 ## 使用
 
@@ -18,6 +18,10 @@ tools/smoke_test.sh work/out/bl616cl-libs \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
   work/bouffalo_sdk work/build      # 之后的参数是测试时要隐藏的路径，原包目录会自动隐藏
 python3 tools/test_export_package.py # 导出逻辑的单元测试；设置 BL_TEST_GCC 时额外用真实 gcc 检查
+python3 tools/export_flash_tools.py \
+  --sdk work/bouffalo_sdk --sources sources.json --chip bl616cl \
+  --version 0.1.0 --out work/out/bl-flash-tools
+python3 tools/test_export_flash_tools.py
 ```
 
 `sources.json` 固定 SDK（公网 bouffalo_sdk v2.3.37）和工具链（Xuantie GCC 10.2.0 V2.6.1）的来源与校验值。`work/` 存放检出、下载和构建输出，不入库。构建在 `work/build/` 中进行；构建前后 SDK 检出目录都必须没有任何改动或新增文件（含被忽略的文件），否则 `build.sh` 报错。导出时核对 SDK 检出与 `sources.json` 一致；`--out` 只会替换空目录或以前的导出。
@@ -42,9 +46,14 @@ python3 tools/test_export_package.py # 导出逻辑的单元测试；设置 BL_T
 - 冒烟测试用 `tools/check_link.py` 检查：只用 FreeRTOS 的程序不链入 wifi 组归档、堆函数来自 SDK；Wi-Fi 载体链入了 SDK 原生链接中所有有内容的包内成员。
 - 镜像后处理：使用 manifest 中 `post_process` 指定的 boot2、分区表和 dts。
 
+## 烧录工具包
+
+`bl-flash-tools` 从同一 SDK 检出的 `tools/bflb_tools` 原样复制 Linux x86_64 的 `bflb_fw_post_proc` 和 `BLFlashCommand`，以及所选芯片的烧录配置，结构见 `tools/export_flash_tools.py` 开头。`BLFlashCommand` 每次运行都会在自身目录下创建 `log/`，目录不可写时直接退出，所以安装目录必须可写；`bflb_fw_post_proc` 只写镜像所在目录。
+
 ## 未完成
 
-- 预编译无线库、工具链和烧录工具的再分发许可尚未核对，包只在本地使用。
+- 预编译无线库、工具链和烧录工具的再分发许可尚未核对，包只在本地使用。`tools/bflb_tools` 中的程序没有单独的许可声明。
+- 烧录工具只有 Linux x86_64 版本。
 - 包归档和包索引条目尚未生成。
 - 包的运行期行为尚未在硬件上验证。
 

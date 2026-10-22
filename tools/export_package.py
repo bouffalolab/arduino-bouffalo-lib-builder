@@ -336,14 +336,14 @@ def check_replaceable(out):
         raise ValueError("refusing to replace %s: not empty and not a previous export" % out)
 
 
-def export(args):
-    """导出到 out 旁的临时目录，成功后再替换 out；失败时 out 保持不变。"""
+def export(args, write=None):
+    """由 write(args, 临时目录) 导出到 out 旁的临时目录，成功后再替换 out；失败时 out 保持不变。"""
     out = Path(args.out).resolve()
     check_replaceable(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=out.name + ".tmp-", dir=out.parent))
     try:
-        manifest = write_package(args, tmp)
+        manifest = (write or write_package)(args, tmp)
         check_replaceable(out)
         if out.exists():
             shutil.rmtree(out)
