@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""export_package.py 的解析与转换测试。
+"""export_package.py 与 check_link.py 的解析与转换测试。
 
 这些规则决定 Arduino 编译能否得到与预编译库一致的配置：
 漏掉全局 define 或 include 会让结构体布局不一致，带入路径相关参数会破坏可重定位。
@@ -127,6 +127,86 @@ class DepfileTest(unittest.TestCase):
                 " /s/inc/./FreeRTOS.h /s/x.inc\n")
         self.assertEqual(ep.depfile_headers(text),
                          ["/b/generated/autoconfig.h", "/s/inc/FreeRTOS.h", "/s/x.inc"])
+
+
+class DepfileEscapeTest(unittest.TestCase):
+    def test_escaped_space_and_crlf(self):
+        """路径含空格或依赖文件为 CRLF 时，头文件不能被静默漏掉。"""
+        text = "x.obj: /w/my\\ sdk/a.h \\\r\n /w/b$$.h\r\n"
+        self.assertEqual(ep.depfile_headers(text), ["/w/my sdk/a.h", "/w/b$.h"])
+
+
+def syms(strong=(), weak=(), undef=(), local=()):
+    return {"strong": set(strong), "weak": set(weak), "undef": set(undef), "local": set(local)}
+
+
+class ParseNmTest(unittest.TestCase):
+    def test_kinds_and_symbolless_members(self):
+        text = ("/p/liba.a[x.o]: f T 0 4\n/p/liba.a[x.o]: g W 0 4\n/p/liba.a[x.o]: h U\n"
+                "/p/liba.a[x.o]: v d 0 4\n/p/liba.a[x.o]: .LC0 r 0 4\n")
+        self.assertEqual(ep.parse_nm(text, ["x.o", "empty.o"]),
+                         {"x.o": syms(["f"], ["g"], ["h"], ["v"]), "empty.o": syms()})
+
+    def test_duplicate_member_names_rejected(self):
+        with self.assertRaises(ValueError):
+            ep.parse_nm("", ["a.o", "a.o"])
+
+
+class ForcedMembersTest(unittest.TestCase):
+    """SDK 用 --whole-archive 时这些成员必定生效；包内按需链接时必须单独强制，否则静默换成别的实现。"""
+
+    TOOLCHAIN = {"libc_nano.a": {"lib_a-nano-mallocr.o": syms(["_malloc_r"])}}
+
+    def test_libc_port_overrides_newlib_for_every_program(self):
+        package = {"liblibc.a": {"port_memory.c.obj": syms(["_malloc_r"], undef=["kmalloc"]),
+                                 "lib_only.c.obj": syms(["sdk_only_fn"])}}
+        forced = ep.forced_members(package, self.TOOLCHAIN, {"wifi": ["libphy.a"]})
+        self.assertEqual(forced, {"base": [("liblibc.a", "port_memory.c.obj",
+                                            "_malloc_r 也由 libc_nano.a(lib_a-nano-mallocr.o) 定义")]})
+
+    def test_override_needing_wifi_library_goes_to_wifi_group(self):
+        """监管域表依赖无线库，放进 base 会让不用 Wi-Fi 的程序也链入无线库。"""
+        package = {
+            "libapp.a": {"wireless_regdb.c.obj": syms(["wireless_regdb_init"], undef=["wireless_config_set_reg_db"])},
+            "libphy.a": {"wireless_config.c.obj": syms(["wireless_config_set_reg_db"], ["wireless_regdb_init"])},
+        }
+        forced = ep.forced_members(package, {}, {"wifi": ["libphy.a"]})
+        self.assertEqual(list(forced), ["wifi"])
+        self.assertEqual(forced["wifi"][0][:2], ("libapp.a", "wireless_regdb.c.obj"))
+
+    def test_local_only_member_forced_but_empty_member_not(self):
+        package = {"liblhal.a": {"lhal_version.c.obj": syms(local=["version_lhal"]), "disabled.c.obj": syms()}}
+        forced = ep.forced_members(package, {}, {})
+        self.assertEqual(forced, {"base": [("liblhal.a", "lhal_version.c.obj", "只有局部定义")]})
+
+
+class CheckReplaceableTest(unittest.TestCase):
+    def test_unrelated_directory_is_not_deleted(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "notes.txt").write_text("keep")
+            with self.assertRaises(ValueError):
+                ep.check_replaceable(Path(d))
+
+    def test_previous_export_and_empty_dir_allowed(self):
+        with tempfile.TemporaryDirectory() as d:
+            ep.check_replaceable(Path(d))
+            (Path(d) / "manifest.json").write_text('{"name": "x-libs", "version": "0", "files": []}')
+            ep.check_replaceable(Path(d))
+
+
+class MapMembersTest(unittest.TestCase):
+    def test_members_with_content_and_forced_names_restored(self):
+        import check_link
+        text = ("由于文件 (符号) 而包含了归档成员\n/p/lib/liblibc.a(x.o)\n\n"
+                "LOAD /p/lib/libforce_base.a\n"
+                ".text           0x0000000023000000     0x100\n"
+                " .text.a        0x0000000023000000       0x1c /p/lib/libforce_base.a(liblibc.a@port_memory.c.obj)\n"
+                " .text.very_long_function_name\n"
+                "                0x0000000023000020       0x10 /p/lib/liblhal.a(bflb_flash.c.obj)\n"
+                " .text.empty    0x0000000023000030        0x0 /p/lib/libstd.a(empty.o)\n"
+                " .debug_info    0x0000000000000000       0x40 /p/lib/libstd.a(debug_only.o)\n")
+        self.assertEqual(check_link.map_members(text),
+                         {("liblibc.a", "port_memory.c.obj"), ("liblhal.a", "bflb_flash.c.obj")})
 
 
 class PostProcTest(unittest.TestCase):

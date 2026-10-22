@@ -303,6 +303,10 @@ int board_console_init(const char *uart_name, uint8_t tx_pin, uint8_t rx_pin, ui
     uint8_t tx_func;
     uint8_t rx_func;
 
+    if (uart_name == NULL || baudrate == 0 || tx_pin == rx_pin ||
+        tx_pin >= GPIO_PIN_MAX || rx_pin >= GPIO_PIN_MAX) {
+        return -1;
+    }
     if (strcmp(uart_name, "uart0") == 0) {
         tx_func = GPIO_UART_FUNC_UART0_TX;
         rx_func = GPIO_UART_FUNC_UART0_RX;

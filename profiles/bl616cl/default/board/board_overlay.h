@@ -21,7 +21,8 @@ void board_init(void);
 
 /*
  * 把 SDK 控制台（printf、LOG_x）接到指定 UART。
- * uart_name 为 "uart0"、"uart1" 或 "uart2"；成功返回 0，参数无效返回 -1。
+ * uart_name 为 "uart0"、"uart1" 或 "uart2"，tx_pin 与 rx_pin 须为芯片范围内的不同引脚，
+ * baudrate 不为 0；成功返回 0，参数无效返回 -1，此时不改动任何外设。
  */
 int board_console_init(const char *uart_name, uint8_t tx_pin, uint8_t rx_pin, uint32_t baudrate);
 

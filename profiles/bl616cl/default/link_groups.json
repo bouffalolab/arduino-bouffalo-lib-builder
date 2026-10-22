@@ -1,0 +1,11 @@
+{
+  "wifi": [
+    "libbl616cl_phyrf.a",
+    "librfparam.a",
+    "libfhost_*.a",
+    "libmacsw_*.a",
+    "libwpa_supplicant.a",
+    "liblwip.a",
+    "libwifi6_lwip_adapter.a"
+  ]
+}

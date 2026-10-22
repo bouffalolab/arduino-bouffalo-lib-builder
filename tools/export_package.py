@@ -5,17 +5,23 @@
 输出目录结构：
 
   include/   全部编译单元共有的 include 目录中的头文件，按 sdk/、build/、profile/ 分类
-  lib/       链接命令中的全部静态库
+  lib/       链接命令中的全部静态库，以及 libforce_<组>.a（见下）
   ld/        预处理后的 linker.ld 及其 INCLUDE 的片段
   boot/      镜像后处理使用的 boot2、分区表、dts
-  flags/     defines、includes、c_flags、S_flags、ld_flags、ld_libs，供 gcc @file 使用
+  flags/     defines、includes、c_flags、S_flags、ld_flags、ld_libs、ld_libs_<组>，供 gcc @file 使用
   manifest.json
 
 includes 使用 -iwithprefixbefore 相对路径，使用方需在其前传入 -iprefix <包>/include/。
 autoconfig.h 必须以 -include 注入所有编译单元，路径见 manifest 的 forced_include。
+
+SDK 以 --whole-archive 链接全部组件库，包不这样做，以免每个程序都带入网络栈。
+因此只靠 --whole-archive 才会生效的成员（覆盖工具链 libc 或弱定义的实现、只有局部定义的成员）
+被单独打成 libforce_<组>.a，由 ld_libs 或 ld_libs_<组> 以 --whole-archive 链入。
+组由 profile 的 link_groups.json 定义；不属于任何组的成员归入 base，所有程序都会链入。
 """
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -24,6 +30,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
+from collections import defaultdict
 from pathlib import Path
 
 HEADER_SUFFIXES = {".h", ".hpp", ".inc"}
@@ -48,6 +56,15 @@ DROP_PREFIXES = (
     "-save-temps",
 )
 DROP_EXACT = {"-c", "-MD", "-MMD", "-fstack-usage"}
+
+# nm -P 的符号类型：全局强定义、弱定义、未定义、局部定义
+STRONG_TYPES = set("TDBRSGA")
+WEAK_TYPES = set("WV")
+LOCAL_TYPES = set("tdbrsg")
+NM_LINE = re.compile(r"^.*\[(?P<member>[^\]]+)\]: (?P<sym>\S+) (?P<type>\S)")
+
+# --specs=nano.specs 时 gcc 隐式链接的库；SDK 的部分组件库覆盖其中的符号
+NANO_TOOLCHAIN_LIBS = ("libc_nano.a", "libm_nano.a", "libgloss_nano.a", "libgcc.a")
 
 # 链接命令中不进入 ld_flags 的选项
 LD_DROP_PREFIXES = ("-T", "-Wl,-Map=", "-L", "-l")
@@ -156,14 +173,10 @@ def sha256_file(path):
 
 
 def git_state(repo):
-    try:
-        head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                              capture_output=True, text=True, check=True).stdout.strip()
-    except subprocess.CalledProcessError:
-        head = None
-    dirty = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"],
-                           capture_output=True, text=True).stdout.strip() != ""
-    return {"commit": head, "dirty": dirty}
+    """仓库的 HEAD 与是否有未提交改动；不是 git 仓库时报错。"""
+    def git(*a):
+        return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout
+    return {"commit": git("rev-parse", "HEAD").strip(), "dirty": git("status", "--porcelain").strip() != ""}
 
 
 def copy_headers(src_dir, dst_dir, copied, skip_dirs=()):
@@ -184,15 +197,16 @@ def copy_headers(src_dir, dst_dir, copied, skip_dirs=()):
 
 
 def depfile_headers(text):
-    """解析 gcc -MD 依赖文件，返回其中的头文件路径。"""
-    body = text.replace("\\\n", " ")
+    """解析 gcc -MD 依赖文件，返回其中的头文件路径；处理续行、CRLF、转义空格与 $$。"""
+    body = text.replace("\r\n", "\n").replace("\\\n", " ")
     paths = []
     for line in body.splitlines():
         if ":" not in line:
             continue
-        for tok in line.split(":", 1)[1].split():
-            if Path(tok).suffix in HEADER_SUFFIXES:
-                paths.append(os.path.normpath(tok))
+        for tok in re.findall(r"(?:\\.|[^\s\\])+", line.split(":", 1)[1]):
+            path = re.sub(r"\\(.)", r"\1", tok).replace("$$", "$")
+            if Path(path).suffix in HEADER_SUFFIXES:
+                paths.append(os.path.normpath(path))
     return paths
 
 
@@ -203,13 +217,151 @@ def post_proc_files(log_text):
     return {"boot2": m.group(1), "partition": m.group(2), "dts": m.group(3)}
 
 
+def parse_nm(text, members):
+    """解析 nm -A -P 的输出；members 为 ar t 列出的成员，没有符号的成员也保留。
+
+    返回 {成员: {"strong": 集合, "weak": 集合, "undef": 集合, "local": 集合}}。
+    local 不含汇编器生成的 .L 标号。
+    """
+    if len(members) != len(set(members)):
+        raise ValueError("duplicate archive member names")
+    table = {m: {"strong": set(), "weak": set(), "undef": set(), "local": set()} for m in members}
+    for line in text.splitlines():
+        m = NM_LINE.match(line)
+        if not m:
+            continue
+        t, sym = m.group("type"), m.group("sym")
+        if t in STRONG_TYPES:
+            kind = "strong"
+        elif t in WEAK_TYPES:
+            kind = "weak"
+        elif t == "U":
+            kind = "undef"
+        elif t in LOCAL_TYPES and not sym.startswith(".L"):
+            kind = "local"
+        else:
+            continue
+        table[m.group("member")][kind].add(sym)
+    return table
+
+
+def archive_symbols(tools, path):
+    members = subprocess.run([tools["ar"], "t", path], capture_output=True, text=True, check=True).stdout.split()
+    nm = subprocess.run([tools["nm"], "-A", "-P", path], capture_output=True, text=True, check=True).stdout
+    return parse_nm(nm, members)
+
+
+def forced_members(package, toolchain, groups):
+    """找出只靠 --whole-archive 才会生效的包内成员，按链接组分开。
+
+    package、toolchain：{归档名: parse_nm() 结果}；groups：{组名: [归档名通配]}。
+    需要强制链入的成员：
+    - 强定义的符号在链接集合的其他成员中也有定义。不强制链入时，工具链 libc 或别处的弱定义
+      可能先满足引用，例如 newlib 的 malloc 取代 SDK 接到 TLSF 堆的 _malloc_r。
+    - 没有全局定义、但有局部定义。这类成员只能经 --whole-archive 进入，内容靠链接脚本 KEEP 保留，
+      例如放进 .version.* 段的版本字符串。配置关闭后为空的成员不强制。
+    成员所在归档属于某组，或它的某个未定义符号只能由同一组的归档提供时，归入该组，其余归入 base。
+    返回 {组名: [(归档名, 成员, 原因)]}。
+    """
+    providers = defaultdict(set)
+    for libs in (package, toolchain):
+        for lib, table in libs.items():
+            for member, syms in table.items():
+                for s in syms["strong"] | syms["weak"]:
+                    providers[s].add((lib, member))
+
+    def group_of(lib):
+        return next((g for g, pats in groups.items() if any(fnmatch.fnmatch(lib, p) for p in pats)), None)
+
+    result = defaultdict(list)
+    for lib in sorted(package):
+        for member, syms in sorted(package[lib].items()):
+            dup = sorted(s for s in syms["strong"] if len(providers[s]) > 1)
+            if dup:
+                other = sorted(providers[dup[0]] - {(lib, member)})[0]
+                reason = "%s 也由 %s(%s) 定义" % (dup[0], other[0], other[1])
+            elif not syms["strong"] and not syms["weak"] and syms["local"]:
+                reason = "只有局部定义"
+            else:
+                continue
+            group = group_of(lib)
+            if group is None:
+                for s in sorted(syms["undef"]):
+                    owners = {group_of(l) for l, _ in providers.get(s, ())}
+                    if len(owners) == 1 and None not in owners:
+                        group = owners.pop()
+                        break
+            result[group or "base"].append((lib, member, reason))
+    return dict(result)
+
+
+def write_forced_archive(tools, archives, entries, dest):
+    """取出成员原样打包，成员名为“原归档名@原成员名”；ar 的 D 选项使结果与时间和用户无关。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        files = []
+        for lib, member, _ in entries:
+            f = Path(tmp) / ("%s@%s" % (lib, member))
+            f.write_bytes(subprocess.run([tools["ar"], "p", archives[lib], member],
+                                         capture_output=True, check=True).stdout)
+            files.append(str(f))
+        subprocess.run([tools["ar"], "rcsD", str(dest)] + files, check=True)
+
+
+def toolchain_libs(gcc, ld_flags):
+    """gcc 按 ld_flags 的多库选项隐式链接的库的路径。"""
+    if "--specs=nano.specs" not in ld_flags:
+        raise ValueError("only --specs=nano.specs links are supported")
+    multilib = [f for f in ld_flags if f.startswith(("-march=", "-mabi="))]
+    libs = {}
+    for name in NANO_TOOLCHAIN_LIBS:
+        path = subprocess.run([gcc] + multilib + ["-print-file-name=" + name],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        if not os.path.isabs(path) or not os.path.isfile(path):
+            raise ValueError("toolchain library not found: " + name)
+        libs[name] = os.path.normpath(path)
+    return libs
+
+
+def is_previous_export(path):
+    try:
+        manifest = json.loads((path / "manifest.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(manifest, dict) and {"name", "version", "files"} <= manifest.keys()
+
+
+def check_replaceable(out):
+    """out 只能不存在、是空目录或本工具以前的导出，避免误删其他目录。"""
+    if out.exists() and not (out.is_dir() and (not any(out.iterdir()) or is_previous_export(out))):
+        raise ValueError("refusing to replace %s: not empty and not a previous export" % out)
+
+
 def export(args):
+    """导出到 out 旁的临时目录，成功后再替换 out；失败时 out 保持不变。"""
+    out = Path(args.out).resolve()
+    check_replaceable(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=out.name + ".tmp-", dir=out.parent))
+    try:
+        manifest = write_package(args, tmp)
+        check_replaceable(out)
+        if out.exists():
+            shutil.rmtree(out)
+        tmp.rename(out)
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    return manifest
+
+
+def write_package(args, out):
     project = Path(args.build).resolve()
     cmake_dir = project / "build"
     sdk = Path(args.sdk).resolve()
-    out = Path(args.out).resolve()
-    if out.exists():
-        shutil.rmtree(out)
+    sources = json.loads(Path(args.sources).read_text())
+    sdk_state = git_state(sdk)
+    if sdk_state != {"commit": sources["sdk"]["commit"], "dirty": False}:
+        raise ValueError("SDK checkout %s does not match sources.json: %r" % (sdk, sdk_state))
     for sub in ("include", "lib", "ld", "boot", "flags"):
         (out / sub).mkdir(parents=True)
 
@@ -240,7 +392,7 @@ def export(args):
         copy_headers(d, out / "include" / rel, copied, skip_dirs=[str(cmake_dir)])
 
     # 补齐构建实际用到、但不在上面目录中的 SDK 头文件
-    for dep in cmake_dir.rglob("*.obj.d"):
+    for dep in cmake_dir.rglob("*.d"):
         for h in depfile_headers(dep.read_text(errors="replace")):
             if not h.startswith(str(sdk) + os.sep):
                 continue
@@ -269,7 +421,30 @@ def export(args):
         shutil.copy2(a, out / "lib" / name)
         lib_names.append("-l" + name[3:-2])
     write_rsp(out / "flags" / "ld_flags", ld_flags)
-    write_rsp(out / "flags" / "ld_libs", lib_names + system_libs)
+
+    # 只靠 --whole-archive 生效的成员
+    compiler = os.path.basename((entries[0]["arguments"] if "arguments" in entries[0]
+                                 else shlex.split(entries[0]["command"]))[0])
+    if not compiler.endswith("gcc"):
+        raise ValueError("unexpected compiler: " + compiler)
+    tools = {t: str(Path(args.toolchain_bin) / (compiler[:-3] + t)) for t in ("gcc", "ar", "nm")}
+    groups = json.loads((project / "link_groups.json").read_text())
+    if "base" in groups:
+        raise ValueError("link group name 'base' is reserved")
+    package_archives = {os.path.basename(a): a for a in archives}
+    forced = forced_members({n: archive_symbols(tools, a) for n, a in package_archives.items()},
+                            {n: archive_symbols(tools, a) for n, a in toolchain_libs(tools["gcc"], ld_flags).items()},
+                            groups)
+    whole = {}
+    for group, members in forced.items():
+        name = "libforce_%s.a" % group
+        if (out / "lib" / name).exists():
+            raise ValueError("duplicate library name: " + name)
+        write_forced_archive(tools, package_archives, members, out / "lib" / name)
+        whole[group] = ["-Wl,--whole-archive", "-lforce_" + group, "-Wl,--no-whole-archive"]
+    write_rsp(out / "flags" / "ld_libs", whole.get("base", []) + lib_names + system_libs)
+    for group in groups:
+        write_rsp(out / "flags" / ("ld_libs_" + group), whole.get(group, []))
 
     # 链接脚本与 INCLUDE 片段
     ld_src = cmake_dir / "generated" / "linker.ld"
@@ -295,7 +470,6 @@ def export(args):
 
     shutil.copy2(sdk / "LICENSE", out / "LICENSE.bouffalo_sdk")
 
-    sources = json.loads(Path(args.sources).read_text())
     chip, profile = args.profile.split("/")
     files = sorted(p for p in out.rglob("*") if p.is_file())
     manifest = {
@@ -307,6 +481,10 @@ def export(args):
         "toolchain": sources["toolchain"],
         "builder": git_state(Path(__file__).resolve().parent.parent),
         "forced_include": forced_rel,
+        "link": {
+            "groups": {g: {"archives": pats, "ld_libs": "flags/ld_libs_" + g} for g, pats in groups.items()},
+            "forced": {g: [{"archive": l, "member": m, "reason": r} for l, m, r in e] for g, e in forced.items()},
+        },
         "post_process": {"chipname": chip, "appkeys": "shared", **boot},
         "licenses": {
             "LICENSE.bouffalo_sdk": "bouffalo_sdk 根目录许可（Apache-2.0）；预编译无线库与工具的许可未单独核对",
@@ -325,10 +503,11 @@ def main(argv=None):
     p.add_argument("--build", required=True, help="profile 构建目录，如 work/build/bl616cl-default")
     p.add_argument("--build-log", required=True, help="build.sh 生成的构建日志")
     p.add_argument("--sdk", required=True, help="SDK 检出目录")
+    p.add_argument("--toolchain-bin", required=True, help="构建所用工具链的 bin 目录")
     p.add_argument("--sources", required=True, help="sources.json")
     p.add_argument("--profile", required=True, help="<chip>/<profile>")
     p.add_argument("--version", required=True)
-    p.add_argument("--out", required=True, help="输出目录，已存在时先删除")
+    p.add_argument("--out", required=True, help="输出目录；已存在时只替换空目录或以前的导出")
     manifest = export(p.parse_args(argv))
     print("exported %s %s: %d files" % (manifest["name"], manifest["version"], len(manifest["files"])))
 
