@@ -22,6 +22,8 @@ python3 tools/export_flash_tools.py \
   --sdk work/bouffalo_sdk --sources sources.json --chip bl616cl \
   --version 0.1.0 --out work/out/bl-flash-tools
 python3 tools/test_export_flash_tools.py
+tools/install_check.sh ../arduino-bl \
+  work/bouffalo_sdk work/build      # 本地包索引安装链检查；之后的参数是要隐藏的路径
 ```
 
 `sources.json` 固定 SDK（公网 bouffalo_sdk v2.3.37）和工具链（Xuantie GCC 10.2.0 V2.6.1）的来源与校验值。`work/` 存放检出、下载和构建输出，不入库。构建在 `work/build/` 中进行；构建前后 SDK 检出目录都必须没有任何改动或新增文件（含被忽略的文件），否则 `build.sh` 报错。导出时核对 SDK 检出与 `sources.json` 一致；`--out` 只会替换空目录或以前的导出。
@@ -50,11 +52,17 @@ python3 tools/test_export_flash_tools.py
 
 `bl-flash-tools` 从同一 SDK 检出的 `tools/bflb_tools` 原样复制 Linux x86_64 的 `bflb_fw_post_proc` 和 `BLFlashCommand`，以及所选芯片的烧录配置，结构见 `tools/export_flash_tools.py` 开头。`BLFlashCommand` 每次运行都会在自身目录下创建 `log/`，目录不可写时直接退出，所以安装目录必须可写；`bflb_fw_post_proc` 只写镜像所在目录。
 
+## 本地包索引
+
+`tools/make_index.py` 把平台仓库 HEAD、`bl616cl-libs`、`bl-flash-tools` 和 `sources.json` 固定的工具链打成归档，生成 `package_bouffalolab_index.json`（只有 Linux x86_64 条目）。归档按名称排序、时间与属主清零，同样输入得到同样的 SHA-256。
+
+`tools/install_check.sh` 用它在临时目录验证安装链：经 127.0.0.1 的 HTTP 服务（arduino-cli 接受 `file://` 索引，不接受 `file://` 归档）安装到空目录，然后在 bubblewrap 中断网、隐藏 `work/out`、`work/toolchain` 和给出的路径，依次检查：安装后编译、移动数据目录后编译、`packages/` 只读时编译、在 sketchbook 中修改 Core 后编译且工具包文件不变。安装步骤需要联网下载 arduino-cli 自带工具；HTTP 端口默认 8765，可用 `BL_INDEX_PORT` 改变。
+
 ## 未完成
 
 - 预编译无线库、工具链和烧录工具的再分发许可尚未核对，包只在本地使用。`tools/bflb_tools` 中的程序没有单独的许可声明。
 - 烧录工具只有 Linux x86_64 版本。
-- 包归档和包索引条目尚未生成。
+- 包索引只在本地验证，尚无公网地址。
 - 包的运行期行为尚未在硬件上验证。
 
 本地共享入口：[底层包约定](../docs/development/dependency-release.md)、[开发规范](../AGENTS.md)、[待决事项](../docs/project/open-decisions.md)。

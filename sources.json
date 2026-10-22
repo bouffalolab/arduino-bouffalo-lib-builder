@@ -6,6 +6,7 @@
   },
   "toolchain": {
     "name": "Xuantie-900 GCC 10.2.0 V2.6.1 B-20220906",
+    "version": "2.6.1",
     "url": "https://github.com/bouffalolab/toolchain/releases/download/default/xuantie-gcc-riscv-v2.6.1-linux-x86_64.tar.xz",
     "sha256": "83817bd7cab693fc249bb98869de5e475c1ede577f4a188869fed96c8dbb8e1a",
     "dir": "xuantie-gcc-riscv-v2.6.1-linux-x86_64"
