@@ -1,7 +1,8 @@
 # arduino-bl 底层包 profile：bl616cl/default
-# 基于 SDK v2.3.37 examples/wifi/defconfig（WIFI6 + FHOST）与
+# 基于 SDK v2.3.37 examples/wifi/defconfig 的 WL80211 分支与
 # examples/cherryusb/cherryusb_cli/defconfig（只取 device CDC ACM）。
-# 去掉了 SHELL、PING、IPERF 等应用工具；DHCPD 被 wifi6 lwIP 适配层引用，保留。BLE 不启用。
+# Wi-Fi 用 wl80211 方案，不用 FHOST（用户 2026-10-22 决定）。
+# 去掉了 SHELL、PING、IPERF 等应用工具；DHCPD 与示例保持一致。BLE 不启用。
 
 CONFIG_BFLB_LOG      =n
 CONFIG_FREERTOS      =y
@@ -15,7 +16,9 @@ CONFIG_DHCPD         =y
 CONFIG_WIFI6         =y
 CONFIG_MACSW_SELECT  = default
 CONFIG_WIFI_P2P      =n
-CONFIG_FHOST         =y
+CONFIG_WL80211       =y
+CONFIG_BL_WPA_SUPPLICANT =y
+CONFIG_WL80211_WRAM_MEM_SIZE_LIMIT = 0x4000
 
 CONFIG_VSNPRINTF_FLOAT      =y
 CONFIG_VSNPRINTF_FLOAT_EX   =y

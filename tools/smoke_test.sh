@@ -78,7 +78,7 @@ check "rtos: main 由测试程序定义" 'grep -q ": rtos.o: definition of main$
 check "rtos: _malloc_r 来自 SDK libc 移植层" \
     'grep -q "(liblibc.a@port_memory.c.obj): definition of _malloc_r$" "$TMP/rtos.trace"'
 check "rtos: 未链入 wifi 链接组的归档" '"${CHECK_LINK[@]}" absent "$PKG/manifest.json" wifi "$TMP/rtos.map"'
-check "wifi: 链接闭合并含 fhost_init" 'grep -q " T fhost_init$" "$TMP/wifi.nm"'
+check "wifi: 链接闭合并含 wl80211_init" 'grep -q " T wl80211_init$" "$TMP/wifi.nm"'
 check "wifi: SDK 原生链接中有内容的包内成员都已链入" \
     '"${CHECK_LINK[@]}" parity "$PKG/manifest.json" "$REF_MAP" "$TMP/wifi.map"'
 

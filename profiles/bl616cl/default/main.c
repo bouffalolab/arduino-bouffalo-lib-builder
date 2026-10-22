@@ -2,35 +2,45 @@
  * 载体工程入口：只为让 SDK 完成一次完整链接，验证本 profile 的库可以闭合，
  * 并产生 linker.ld 与链接参数。导出底层包时不包含本文件；
  * Arduino 固件的 main 由 Core 提供。
- * 初始化顺序与 SDK v2.3.37 examples/wifi/sta/wifi_tcp/main.c 相同，去掉了 shell；
+ * Wi-Fi 使用 wl80211 方案，初始化顺序与 SDK v2.3.37 examples/wifi/nethub 的
+ * app_user.c、app_wifi_wl80211.c 相同，去掉了 shell、存储与 AT 模块；
  * Wi-Fi 中断改由 board_wifi_irq_init() 挂接（见 board_overlay.c）。
  */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "timers.h"
 #include <lwip/tcpip.h>
-#include "wifi_mgmr_ext.h"
-#include "fhost_api.h"
-#include "wifi_mgmr.h"
+#include "wl80211.h"
+#include "macsw_plat.h"
 #include "rfparam_adapter.h"
 #include "async_event.h"
 #include "board.h"
 #include "usbd_core.h"
 #include "usbd_cdc_acm.h"
 
-extern void wifi_task_create(void);
-
-static void wifi_event_handler(async_input_event_t ev, void *priv)
+static void async_event_handler(void *arg1, uint32_t arg2)
 {
-    if (ev->code == CODE_WIFI_ON_INIT_DONE) {
-        wifi_mgmr_task_start();
+    vTaskSuspendAll();
+    async_event_loop();
+    xTaskResumeAll();
+}
+
+static void async_event_loop_wake(void)
+{
+    TickType_t wait = portMAX_DELAY;
+
+    if (xTimerGetTimerDaemonTaskHandle() == xTaskGetCurrentTaskHandle()) {
+        wait = 0;
     }
+    xTimerPendFunctionCall(async_event_handler, NULL, 0, wait);
 }
 
 static void wifi_start_firmware_task(void *param)
 {
-    async_register_event_filter(EV_WIFI, wifi_event_handler, NULL);
+    async_event_init(async_event_loop_wake);
     wifi_task_create();
-    fhost_init();
+    vTaskDelay(500);
+    wl80211_init();
     vTaskDelete(NULL);
 }
 

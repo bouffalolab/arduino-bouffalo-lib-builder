@@ -2,10 +2,9 @@
   "wifi": [
     "libbl616cl_phyrf.a",
     "librfparam.a",
-    "libfhost_*.a",
+    "libwl80211_*.a",
     "libmacsw_*.a",
-    "libwpa_supplicant.a",
-    "liblwip.a",
-    "libwifi6_lwip_adapter.a"
+    "libbl_wpa_supplicant.a",
+    "liblwip.a"
   ]
 }

@@ -132,7 +132,10 @@
 #endif
 #endif
 
+/* lwiphooks.h 属于 FHOST 的 lwIP 适配层；wl80211 不使用（与 examples/wifi/nethub 相同） */
+#ifdef CONFIG_FHOST
 #define LWIP_HOOK_FILENAME        "lwiphooks.h"
+#endif
 
 #define LWIP_RAW                  1
 #define LWIP_MULTICAST_TX_OPTIONS 1

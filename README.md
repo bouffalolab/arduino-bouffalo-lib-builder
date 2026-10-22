@@ -2,7 +2,7 @@
 
 为 arduino-bl 构建和发布版本化底层依赖包。完整 SDK 的获取、配置和补丁只在此类维护者流程中处理。
 
-当前阶段：能构建并导出 BL616CL 首个本地包 `bl616cl-libs`（profile `default`：FreeRTOS、lwIP、Wi-Fi STA、CherryUSB device CDC，BLE 关闭），尚未发布。
+当前阶段：能构建并导出 BL616CL 首个本地包 `bl616cl-libs`（profile `default`：FreeRTOS、lwIP、Wi-Fi STA（wl80211）、CherryUSB device CDC，BLE 关闭），尚未发布。
 
 ## 使用
 
@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.2.0 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.3.0 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -26,10 +26,10 @@ python3 tools/test_export_package.py # 导出逻辑的单元测试；设置 BL_T
 
 `profiles/<chip>/<profile>/` 是一个 SDK 工程：
 
-- `defconfig` 决定组件组合。
+- `defconfig` 决定组件组合。Wi-Fi 使用 wl80211 方案，不用 FHOST。
 - `FreeRTOSConfig.h`、`lwipopts_user.h`、`usb_config.h`、`mbedtls_sample_config.h` 会改变库内布局，随包导出，平台必须使用包内这一份。
 - `board/` 通过 SDK 的 board overlay 机制替换 `board.c`，只保留芯片级初始化。控制台改由 `board_console_init()` 按需开启；Wi-Fi 中断由 `board_wifi_irq_init()` 挂接，与 `board_init()` 分开，避免不用 Wi-Fi 的固件链入无线库。
-- `main.c` 只用于让 SDK 完成一次链接，不进入包。
+- `main.c` 只用于让 SDK 完成一次链接，不进入包；Wi-Fi 初始化顺序与 SDK 的 `examples/wifi/nethub` wl80211 分支相同。
 - `link_groups.json` 定义链接组（目前只有 `wifi`），见下文“链接”。
 
 ## 包结构
