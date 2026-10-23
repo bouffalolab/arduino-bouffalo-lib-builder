@@ -1,8 +1,8 @@
 {
   "sdk": {
     "repo": "https://github.com/bouffalolab/bouffalo_sdk.git",
-    "tag": "v2.3.37",
-    "commit": "f924fbb2fe2ba98430cb4da940861beeb8c0682b",
+    "ref": "master",
+    "commit": "1cd1fd514df7ed0dfc1221be871f5aae03f31bbc",
     "patches": [
       {
         "file": "patches/sdk/lhal-usb-ep0-stall-cx-done.patch",

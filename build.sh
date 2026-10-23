@@ -19,10 +19,18 @@ SDK_TREE=$BUILD.sdk
 src() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]])' "$ROOT/sources.json" "$1" "$2"; }
 
 fetch_sdk() {
-    local repo tag commit head
-    repo=$(src sdk repo); tag=$(src sdk tag); commit=$(src sdk commit)
+    local repo commit head
+    repo=$(src sdk repo); commit=$(src sdk commit)
     if [ ! -d "$SDK/.git" ]; then
-        git clone --branch "$tag" --depth 1 "$repo" "$SDK"
+        git init -q "$SDK"
+        git -C "$SDK" remote add origin "$repo"
+    fi
+    # 按提交浅拉取并切换（sdk.ref 只记录来源分支或标签）；切换前检出须干净
+    head=$(git -C "$SDK" rev-parse -q --verify HEAD || true)
+    if [ "$head" != "$commit" ]; then
+        [ -z "$(git -C "$SDK" status --porcelain --ignored)" ] || { echo "SDK checkout is not clean: $SDK" >&2; exit 1; }
+        git -C "$SDK" fetch --depth 1 origin "$commit"
+        git -C "$SDK" checkout -q --detach "$commit"
     fi
     head=$(git -C "$SDK" rev-parse HEAD)
     [ "$head" = "$commit" ] || { echo "SDK HEAD $head != pinned $commit" >&2; exit 1; }

@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.3.3 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.3.4 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -21,19 +21,19 @@ python3 tools/test_export_package.py # 导出逻辑的单元测试；设置 BL_T
 python3 tools/test_prepare_sdk_tree.py
 python3 tools/export_flash_tools.py \
   --sdk work/bouffalo_sdk --sources sources.json --chip bl616cl \
-  --version 0.1.0 --out work/out/bl-flash-tools
+  --version 0.1.1 --out work/out/bl-flash-tools
 python3 tools/test_export_flash_tools.py
 tools/install_check.sh ../arduino-bl \
   work/bouffalo_sdk work/build      # 本地包索引安装链检查；之后的参数是要隐藏的路径
 ```
 
-`sources.json` 固定 SDK（公网 bouffalo_sdk v2.3.37）和工具链（Xuantie GCC 10.2.0 V2.6.1）的来源与校验值。`work/` 存放检出、下载和构建输出，不入库。构建在 `work/build/` 中进行；构建前后 SDK 检出目录都必须没有任何改动或新增文件（含被忽略的文件），否则 `build.sh` 报错。导出时核对 SDK 检出与 `sources.json` 一致；`--out` 只会替换空目录或以前的导出。
+`sources.json` 固定 SDK（公网 bouffalo_sdk master 提交 `1cd1fd51`，即 v2.3.37 之后 3 个提交，含 wl80211 预编译库的二进制兼容修复，没有它连接 WPA3 AP 会崩溃；包含该修复的正式版本发布后改回按标签固定）和工具链（Xuantie GCC 10.2.0 V2.6.1）的来源与校验值。`work/` 存放检出、下载和构建输出，不入库。构建在 `work/build/` 中进行；构建前后 SDK 检出目录都必须没有任何改动或新增文件（含被忽略的文件），否则 `build.sh` 报错。导出时核对 SDK 检出与 `sources.json` 一致；`--out` 只会替换空目录或以前的导出。
 
 包内不留构建机路径：profile 把 work 目录映射为 `/work`、SDK 目录映射为 `.`（`-ffile-prefix-map`，work 目录由 `build.sh` 经 `BL_PREFIX_MAP_ROOT` 传入）；导出时把 `autoconfig.h` 中的 SDK 路径改为相对路径，并检查导出的全部文件（含 `.a`），含构建机路径即失败。导出还会用 `strip -D --strip-debug` 剥离库的调试信息（lib 约 40 MB 降到 27 MB，符号与 LTO 段保留，链接出的镜像不变）。
 
 ## SDK 补丁
 
-构建不直接使用检出目录：`tools/prepare_sdk_tree.py` 把检出中的已跟踪文件硬链接到 `work/build/<profile>.sdk`，再按 `sources.json` 的 `sdk.patches` 顺序打补丁（核对 sha256）；被补丁改动的文件先换成独立拷贝，检出目录保持不变。SDK 构建时用 git 生成版本信息，`build.sh` 让它读检出的仓库，打过补丁的库中版本带 dirty 标记（如 lhal `v2.3.37-dirty`）。导出用 `--sdk-tree` 指向这份目录，核对其中记录的提交与补丁和 `sources.json` 一致；补丁清单随 `sdk` 写入包的 manifest。
+构建不直接使用检出目录：`tools/prepare_sdk_tree.py` 把检出中的已跟踪文件硬链接到 `work/build/<profile>.sdk`，再按 `sources.json` 的 `sdk.patches` 顺序打补丁（核对 sha256）；被补丁改动的文件先换成独立拷贝，检出目录保持不变。SDK 构建时用 git 生成版本信息，`build.sh` 让它读检出的仓库，打过补丁的库中版本带 dirty 标记（如 lhal `1cd1fd51-dirty`；浅检出没有标签，版本只含提交号）。导出用 `--sdk-tree` 指向这份目录，核对其中记录的提交与补丁和 `sources.json` 一致；补丁清单随 `sdk` 写入包的 manifest。
 
 补丁放在 `patches/sdk/`，路径相对 SDK 根目录（`-p1`），文件开头写明问题、证据、上游提交和删除条件。修复先提交到上游，合入主线后随 bouffalo_sdk 公网版本发布；`sources.json` 升级到包含它的版本时删除对应补丁。
 
