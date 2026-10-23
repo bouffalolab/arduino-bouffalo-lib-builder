@@ -1,35 +1,29 @@
 # arduino-bl 底层包 profile：bl616cl/default
-# 基于 SDK v2.3.37 examples/wifi/defconfig 的 WL80211 分支与
-# examples/cherryusb/cherryusb_cli/defconfig（只取 device CDC ACM）。
-# Wi-Fi 用 wl80211 方案，不用 FHOST（用户 2026-10-22 决定）。
-# 去掉了 SHELL、PING、IPERF 等应用工具；DHCPD 与示例保持一致。BLE 不启用。
+# Wi-Fi 用 wl80211 方案（用户 2026-10-22），组件与 Wi-Fi 配置沿用 SDK examples/wifi/macsw_bare/defconfig
+# （用户 2026-10-23）；USB device 取自 examples/cherryusb/cherryusb_cli/defconfig（只取 CDC ACM）。
+# 与 macsw_bare 的差别：不开 SHELL、IPERF（Arduino 不提供 SDK 命令行），不含 bl618dg 与 GCOV 分支。BLE 不启用。
 
-CONFIG_BFLB_LOG      =n
-CONFIG_FREERTOS      =y
-CONFIG_POSIX         =y
-CONFIG_TLSF          =y
-CONFIG_LWIP          =y
-CONFIG_RF            =y
-CONFIG_MBEDTLS       =y
-CONFIG_DHCPD         =y
-
-CONFIG_WIFI6         =y
-CONFIG_MACSW_SELECT  = default
-CONFIG_WIFI_P2P      =n
-CONFIG_WL80211       =y
+CONFIG_BFLB_LOG          =n
+CONFIG_FREERTOS          =y
+CONFIG_POSIX             =n
+CONFIG_TLSF              =y
+CONFIG_LWIP              =y
+CONFIG_WL80211           =y
 CONFIG_BL_WPA_SUPPLICANT =y
-CONFIG_WL80211_WRAM_MEM_SIZE_LIMIT = 0x4000
+CONFIG_WIFI6             =y
+CONFIG_RF                =y
+CONFIG_MBEDTLS           =y
+CONFIG_DHCPD             =y
+CONFIG_PING              =y
+CONFIG_BACKTRACE         =y
 
-CONFIG_VSNPRINTF_FLOAT      =y
-CONFIG_VSNPRINTF_FLOAT_EX   =y
-CONFIG_VSNPRINTF_LONG_LONG  =y
+CONFIG_WL80211_WRAM_MEM_SIZE_LIMIT = 0x10000 # 64KB
 
-CONFIG_MBEDTLS_AES_USE_HW    =y
-CONFIG_MBEDTLS_BIGNUM_USE_HW =y
-CONFIG_MBEDTLS_ECC_USE_HW    =y
-CONFIG_MBEDTLS_SHA1_USE_HW   =y
-CONFIG_MBEDTLS_SHA256_USE_HW =y
-CONFIG_MBEDTLS_SHA512_USE_HW =y
+CONFIG_VSNPRINTF_FLOAT        =y
+CONFIG_VSNPRINTF_FLOAT_EX     =y
+CONFIG_VSNPRINTF_LONG_LONG    =y
+
+CONFIG_MACSW_SELECT      = default
 
 CONFIG_CHERRYUSB                =y
 CONFIG_CHERRYUSB_OSAL           =freertos
