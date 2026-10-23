@@ -6,7 +6,7 @@
     "patches": [
       {
         "file": "patches/sdk/lhal-usb-ep0-stall-cx-done.patch",
-        "sha256": "e196c887844c4d91825d785156aec4d3a0e352f8b0610039fa2ec5b1d3c7f03f"
+        "sha256": "42d599b53e6714b56786fb9d0eb88176b338fd361ebedd491136fd03ece94ba4"
       }
     ]
   },

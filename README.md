@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.3.1 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.3.2 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -37,7 +37,7 @@ tools/install_check.sh ../arduino-bl \
 
 | 补丁 | 内容 | 上游 |
 | --- | --- | --- |
-| `lhal-usb-ep0-stall-cx-done.patch` | USB 设备驱动 stall EP0 时同时写 `USB_CX_DONE`；否则 OUT 控制请求被拒后 EP0 不再响应，直到总线复位 | Gerrit lhal 11805 |
+| `lhal-usb-ep0-stall-cx-done.patch` | USB 设备驱动 stall EP0 时在同一次寄存器写中置 `USB_CX_STL` 与 `USB_CX_DONE`；否则 OUT 控制请求被拒后 EP0 不再响应，直到总线复位 | Gerrit lhal 11805 |
 
 ## profile
 
