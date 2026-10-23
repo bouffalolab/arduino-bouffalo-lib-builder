@@ -5,7 +5,7 @@
 输出目录结构：
 
   include/   全部编译单元共有的 include 目录中的头文件，按 sdk/、build/、profile/ 分类
-  lib/       链接命令中的全部静态库，以及 libforce_<组>.a（见下）
+  lib/       链接命令中的全部静态库，以及 libforce_<组>.a（见下）；均已剥离调试信息
   ld/        预处理后的 linker.ld 及其 INCLUDE 的片段
   boot/      镜像后处理使用的 boot2、分区表、dts
   flags/     defines、includes、c_flags、S_flags、ld_flags、ld_libs、ld_libs_<组>，供 gcc @file 使用
@@ -13,6 +13,7 @@
 
 includes 使用 -iwithprefixbefore 相对路径，使用方需在其前传入 -iprefix <包>/include/。
 autoconfig.h 必须以 -include 注入所有编译单元，路径见 manifest 的 forced_include。
+导出的文件不能含构建机路径（构建时由 profile 把 work 目录映射为 /work），否则导出失败。
 
 SDK 以 --whole-archive 链接全部组件库，包不这样做，以免每个程序都带入网络栈。
 因此只靠 --whole-archive 才会生效的成员（覆盖工具链 libc 或弱定义的实现、只有局部定义的成员）
@@ -53,6 +54,7 @@ DROP_PREFIXES = (
     "-MQ ",
     "-fmacro-prefix-map=",
     "-fdebug-prefix-map=",
+    "-ffile-prefix-map=",
     "-fdiagnostics-color",
     "-std=",
     "-W",            # 警告级别由平台决定
@@ -325,6 +327,34 @@ def toolchain_libs(gcc, ld_flags):
     return libs
 
 
+def relativize_sdk_paths(path, tree):
+    """autoconfig.h 中由 SDK Kconfig 默认值带入的 SDK 目录绝对路径（BOOT2FILE、DTSFILE、PTFILE，
+    只供 SDK 的 CMake 烧录脚本使用，C 代码不引用）改为相对 SDK 根目录。"""
+    text = path.read_text()
+    path.write_text(text.replace(tree + os.sep, ""))
+
+
+def strip_debug(strip, lib_dir):
+    """剥离库的调试信息（约占 lib 的三分之一）；符号与 LTO 段保留，链接出的镜像不变。
+    -D 让归档成员的时间与 uid 固定，否则同一输入每次导出的 .a 都不同。"""
+    for a in sorted(lib_dir.glob("*.a")):
+        subprocess.run([strip, "-D", "--strip-debug", str(a)], capture_output=True, text=True, check=True)
+
+
+def check_no_host_paths(out, roots):
+    """导出的全部文件（含 .a）都不能含构建机路径：否则包随构建目录变化、无法按哈希核对重建，并泄露用户目录。"""
+    needles = sorted({r.encode() for r in roots}, key=len, reverse=True)
+    bad = []
+    for p in sorted(out.rglob("*")):
+        if p.is_file():
+            data = p.read_bytes()
+            hit = next((n for n in needles if n in data), None)
+            if hit:
+                bad.append("%s: %s" % (p.relative_to(out), hit.decode()))
+    if bad:
+        raise ValueError("exported files contain build host paths:\n" + "\n".join(bad[:20]))
+
+
 def is_previous_export(path):
     try:
         manifest = json.loads((path / "manifest.json").read_text())
@@ -420,6 +450,7 @@ def write_package(args, out):
     forced_rel = "include/" + map_include_dir(os.path.dirname(forced[0]), roots) + "/" + os.path.basename(forced[0])
     if not (out / forced_rel).is_file():
         raise ValueError("forced include not exported: " + forced_rel)
+    relativize_sdk_paths(out / forced_rel, str(tree))
 
     write_rsp(out / "flags" / "defines", defines)
     write_rsp(out / "flags" / "includes", [x for rel in include_rel for x in ("-iwithprefixbefore", rel)])
@@ -443,7 +474,7 @@ def write_package(args, out):
                                  else shlex.split(entries[0]["command"]))[0])
     if not compiler.endswith("gcc"):
         raise ValueError("unexpected compiler: " + compiler)
-    tools = {t: str(Path(args.toolchain_bin) / (compiler[:-3] + t)) for t in ("gcc", "ar", "nm")}
+    tools = {t: str(Path(args.toolchain_bin) / (compiler[:-3] + t)) for t in ("gcc", "ar", "nm", "strip")}
     groups = json.loads((project / "link_groups.json").read_text())
     if "base" in groups:
         raise ValueError("link group name 'base' is reserved")
@@ -486,6 +517,11 @@ def write_package(args, out):
 
     shutil.copy2(sdk / "LICENSE", out / "LICENSE.bouffalo_sdk")
 
+    strip_debug(tools["strip"], out / "lib")
+    builder = Path(__file__).resolve().parent.parent
+    check_no_host_paths(out, [str(tree), str(sdk), str(project), str(Path(args.toolchain_bin).resolve().parent),
+                              str(builder)])
+
     chip, profile = args.profile.split("/")
     files = sorted(p for p in out.rglob("*") if p.is_file())
     manifest = {
@@ -495,7 +531,7 @@ def write_package(args, out):
         "profile": profile,
         "sdk": sources["sdk"],
         "toolchain": sources["toolchain"],
-        "builder": git_state(Path(__file__).resolve().parent.parent),
+        "builder": git_state(builder),
         "forced_include": forced_rel,
         "link": {
             "groups": {g: {"archives": pats, "ld_libs": "flags/ld_libs_" + g} for g, pats in groups.items()},

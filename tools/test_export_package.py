@@ -32,7 +32,8 @@ class CommonArgsTest(unittest.TestCase):
 
     def test_portable_flags_drop_paths_and_language_standard(self):
         args = ["-march=rv32imafc_xtheade", "-fshort-enums", "-std=gnu99", "-c",
-                "-fmacro-prefix-map=/home/u/sdk=.", "-o x.obj", "-include /b/autoconfig.h",
+                "-fmacro-prefix-map=/home/u/sdk=.", "-ffile-prefix-map=/home/u/work=/work",
+                "-o x.obj", "-include /b/autoconfig.h",
                 "-I/sdk/inc", "-DX", "-fstack-usage", "-Os"]
         self.assertEqual(ep.portable_flags(args), ["-march=rv32imafc_xtheade", "-fshort-enums", "-Os"])
 
@@ -54,6 +55,43 @@ class CopyHeadersTest(unittest.TestCase):
             ep.copy_headers(str(proj), out, set(), skip_dirs=[str(proj / "build")])
             self.assertTrue((out / "FreeRTOSConfig.h").is_file())
             self.assertFalse((out / "build").exists())
+
+
+class HostPathTest(unittest.TestCase):
+    """包随构建目录变化就无法按哈希核对重建，还会泄露构建机用户目录。"""
+
+    def test_autoconfig_sdk_paths_become_relative(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "autoconfig.h"
+            f.write_text('#define CONFIG_BOARD_BOOT2FILE "/w/build/p.sdk/bsp/board/boot2.bin"\n#define BOARD "dk"\n')
+            ep.relativize_sdk_paths(f, "/w/build/p.sdk")
+            self.assertEqual(f.read_text(),
+                             '#define CONFIG_BOARD_BOOT2FILE "bsp/board/boot2.bin"\n#define BOARD "dk"\n')
+
+    def test_host_path_in_any_exported_file_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "lib").mkdir()
+            (out / "lib" / "libx.a").write_bytes(b"!<arch>\n\x00/w/build/p/board/x.c\x00")
+            (out / "include.h").write_text("#define A 1\n")
+            with self.assertRaisesRegex(ValueError, "lib/libx.a"):
+                ep.check_no_host_paths(out, ["/w/build/p", "/w/toolchain"])
+            (out / "lib" / "libx.a").write_bytes(b"!<arch>\n\x00/work/build/p/board/x.c\x00")
+            ep.check_no_host_paths(out, ["/w/build/p", "/w/toolchain"])
+
+    def test_strip_keeps_symbols_and_is_deterministic(self):
+        with tempfile.TemporaryDirectory() as d:
+            lib = Path(d) / "lib"
+            lib.mkdir()
+            for n in ("liba.a", "libb.a"):
+                (lib / n).write_bytes(b"")
+            log = Path(d) / "args"
+            strip = Path(d) / "strip"
+            strip.write_text('#!/bin/sh\necho "$@" >> "%s"\n' % log)
+            strip.chmod(0o755)
+            ep.strip_debug(str(strip), lib)
+            calls = log.read_text().splitlines()
+            self.assertEqual(calls, ["-D --strip-debug %s" % (lib / n) for n in ("liba.a", "libb.a")])
 
 
 class EntryArgsTest(unittest.TestCase):

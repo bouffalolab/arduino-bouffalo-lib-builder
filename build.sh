@@ -61,7 +61,8 @@ build_profile() {
     cp -r "$PROFILE_DIR" "$BUILD"
     python3 -I "$ROOT/tools/prepare_sdk_tree.py" --sdk "$SDK" --sources "$ROOT/sources.json" --out "$SDK_TREE"
     # SDK 在构建时用 git 生成版本信息（提交号、lhal 版本）；指向检出的仓库，打过补丁时带 dirty 标记
-    GIT_DIR=$SDK/.git GIT_WORK_TREE=$SDK_TREE PATH=$TOOLCHAIN/bin:$PATH PYTHONDONTWRITEBYTECODE=1 \
+    # BL_PREFIX_MAP_ROOT：profile 据此把 work 目录映射为 /work，库中不留构建机路径
+    GIT_DIR=$SDK/.git GIT_WORK_TREE=$SDK_TREE PATH=$TOOLCHAIN/bin:$PATH PYTHONDONTWRITEBYTECODE=1 BL_PREFIX_MAP_ROOT=$WORK \
         make -C "$BUILD" BL_SDK_BASE="$SDK_TREE" VERBOSE=1 >"$BUILD.log" 2>&1 \
         || { grep -E -m 20 'error:|undefined reference|Error [0-9]' "$BUILD.log" >&2 || true
              echo "build failed, log: $BUILD.log" >&2; exit 1; }
