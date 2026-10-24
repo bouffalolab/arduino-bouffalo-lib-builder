@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.3.5 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.4.0 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -45,7 +45,9 @@ tools/install_check.sh ../arduino-bl \
 
 `profiles/<chip>/<profile>/` 是一个 SDK 工程：
 
-- `defconfig` 决定组件组合。Wi-Fi 使用 wl80211 方案，不用 FHOST；组件与 Wi-Fi 配置（含 `FreeRTOSConfig.h`、`lwipopts_user.h`、`mbedtls_sample_config.h`）沿用 SDK `examples/wifi/macsw_bare`，只去掉 SHELL、IPERF。
+- `defconfig` 决定组件组合。Wi-Fi 使用 wl80211 方案，不用 FHOST；组件与 Wi-Fi 配置（含 `FreeRTOSConfig.h`、`lwipopts_user.h`）沿用 SDK `examples/wifi/macsw_bare`，只去掉 SHELL、IPERF。
+- mbedTLS 是 SDK 的 3.6 版，生效的配置是 `config-tls-generic.h`（`flags/defines` 中的 `MBEDTLS_CONFIG_FILE`），选项取 defconfig 的 `CONFIG_MBEDTLS_*`。profile 里随 macsw_bare 带来的 `mbedtls_sample_config.h` 只在 `CONFIG_MBEDTLS_V2` 时使用，本 profile 不生效。
+- TLS（ticket 0029）在 defconfig 另开 P-384、P-521、X25519 与证书束组件 `bl_crt_bundle`。构建时用 SDK 的 `gen_crt_bundle.py` 把 `cacrt_all.pem`（147 张）转成证书束，由 `arduino_crt_bundle.S` 编进 `libapp.a`，符号 `arduino_crt_bundle`、`arduino_crt_bundle_size` 声明在随包导出的 `arduino_crt_bundle.h`。证书束约 66 KB，只有用到它的固件链入；新增曲线使链入 Wi-Fi 的固件多约 14 KB flash（WPA3 SAE 加载曲线时引用全部已开曲线），RAM 不变。
 - `FreeRTOSConfig.h`、`lwipopts_user.h`、`usb_config.h`、`mbedtls_sample_config.h` 会改变库内布局，随包导出，平台必须使用包内这一份。
 - `board/` 通过 SDK 的 board overlay 机制替换 `board.c`，只保留芯片级初始化。控制台改由 `board_console_init()` 按需开启；Wi-Fi 中断由 `board_wifi_irq_init()` 挂接，与 `board_init()` 分开，避免不用 Wi-Fi 的固件链入无线库。
 - `main.c` 只用于让 SDK 完成一次链接，不进入包；Wi-Fi 初始化顺序与 SDK 的 `examples/wifi/macsw_bare` 相同。
