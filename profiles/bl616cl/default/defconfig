@@ -1,6 +1,6 @@
 # arduino-bl 底层包 profile：bl616cl/default
 # Wi-Fi 用 wl80211 方案（用户 2026-10-22），组件与 Wi-Fi 配置沿用 SDK examples/wifi/macsw_bare/defconfig
-# （用户 2026-10-23）；USB device 取自 examples/cherryusb/cherryusb_cli/defconfig（只取 CDC ACM）。
+# （用户 2026-10-23）；USB device 为 CDC ACM + 可选 HID（ARDUINO-42）。
 # 与 macsw_bare 的差别：不开 SHELL、IPERF（Arduino 不提供 SDK 命令行），不含 bl618dg 与 GCOV 分支。BLE 不启用。
 # TLS（ticket 0029）另加 P-384、P-521、X25519 与证书束组件 bl_crt_bundle，其余 mbedTLS 选项用 SDK 默认值。
 
@@ -34,3 +34,4 @@ CONFIG_CHERRYUSB                =y
 CONFIG_CHERRYUSB_OSAL           =freertos
 CONFIG_CHERRYUSB_DEVICE         =y
 CONFIG_CHERRYUSB_DEVICE_CDC_ACM =y
+CONFIG_CHERRYUSB_DEVICE_HID     =y
