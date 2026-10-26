@@ -546,6 +546,18 @@ def write_package(args, out):
             for p in files
         ],
     }
+    controller = next((Path(a) for a in archives
+                       if Path(a).name == "libbtblecontroller_bl616cl_uarthci.a"), None)
+    if controller is not None:
+        manifest["controller"] = {
+            "variant": "bl616cl/uarthci",
+            "host": "external",
+            "source_path": str(controller.relative_to(tree)),
+            "source_sha256": sha256_file(controller),
+            "archive": "lib/" + controller.name,
+            "configuration": forced_rel,
+            "license": "LICENSE.bouffalo_sdk",
+        }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n")
     return manifest
 

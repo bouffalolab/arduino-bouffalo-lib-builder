@@ -1,4 +1,7 @@
 {
+  "ble": [
+    "libbtblecontroller_bl616cl_uarthci.a"
+  ],
   "wifi": [
     "libbl616cl_phyrf.a",
     "librfparam.a",

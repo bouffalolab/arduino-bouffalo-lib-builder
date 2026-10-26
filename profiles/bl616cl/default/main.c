@@ -17,6 +17,7 @@
 #include "board.h"
 #include "usbd_core.h"
 #include "usbd_cdc_acm.h"
+#include "btble_lib_api.h"
 
 static void async_event_handler(void *arg1, uint32_t arg2)
 {
@@ -54,6 +55,7 @@ int main(void)
     }
 
     async_event_init(async_event_loop_wake);
+    btble_controller_init(configMAX_PRIORITIES - 2);
 
     /* 引用 CherryUSB device 入口，确认 USB 库能链接；载体不初始化 USB。 */
     volatile void *usb_entry = (void *)usbd_initialize;

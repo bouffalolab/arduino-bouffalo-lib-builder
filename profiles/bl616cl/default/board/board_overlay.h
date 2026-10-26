@@ -29,6 +29,9 @@ int board_console_init(const char *uart_name, uint8_t tx_pin, uint8_t rx_pin, ui
 /* 挂接并使能 Wi-Fi 中断；启动 Wi-Fi 前调用一次。 */
 void board_wifi_irq_init(void);
 
+/* Wi-Fi/BLE 共用，应用任务串行调用；射频参数仅初始化一次，成功返回0。 */
+int board_radio_init(void);
+
 enum bflb_rtc_32k_clk_type board_get_rtc_32k_clk_type(void);
 
 void board_acomp_init(void);

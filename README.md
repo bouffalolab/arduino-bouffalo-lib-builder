@@ -2,7 +2,7 @@
 
 为 arduino-bl 构建和发布版本化底层依赖包。完整 SDK 的获取、配置和补丁只在此类维护者流程中处理。
 
-当前阶段：能构建并导出 BL616CL 本地包 `bl616cl-libs`（profile `default`：FreeRTOS、lwIP、Wi-Fi STA（wl80211）、CherryUSB device CDC/HID，BLE 关闭），以及镜像后处理与烧录工具包 `bl-flash-tools`，尚未发布。
+当前阶段：能构建并导出 BL616CL 本地包 `bl616cl-libs`（profile `default`：FreeRTOS、lwIP、Wi-Fi STA/AP（wl80211）、CherryUSB device CDC/HID、可选external-host BLE UART HCI Controller），以及镜像后处理与烧录工具包 `bl-flash-tools`，尚未公开发布。
 
 ## 使用
 
@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.4.1 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.5.0 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -50,9 +50,11 @@ tools/install_check.sh ../arduino-bl \
 - TLS（ticket 0029）在 defconfig 另开 P-384、P-521、X25519 与证书束组件 `bl_crt_bundle`。构建时用 SDK 的 `gen_crt_bundle.py` 把 `cacrt_all.pem`（147 张）转成证书束，由 `arduino_crt_bundle.S` 编进 `libapp.a`，符号 `arduino_crt_bundle`、`arduino_crt_bundle_size` 声明在随包导出的 `arduino_crt_bundle.h`。证书束约 66 KB，只有用到它的固件链入；新增曲线使链入 Wi-Fi 的固件多约 14 KB flash（WPA3 SAE 加载曲线时引用全部已开曲线），RAM 不变。
 - `FreeRTOSConfig.h`、`lwipopts_user.h`、`usb_config.h`、`mbedtls_sample_config.h` 会改变库内布局，随包导出，平台必须使用包内这一份。
 - 0.4.1 起包含 CherryUSB HID 类与头文件，供平台的可选 raw HID 接口使用；是否枚举 HID 由应用注册决定，普通 sketch 仍只有 CDC。CMSIS-DAP 与 RA4M1 引脚控制不进入底层包。
+- 0.5.0起使用同一固定GitHub SDK提供的`libbtblecontroller_bl616cl_uarthci.a`及匹配头文件，原归档SHA-256 `307b72a88fd2a1a9875b283de959972a53851d0085079fa2c5d69c60e0128bab`，库字符串1.6.212。`CONFIG_BLE_HOST_DISABLE=y`；上游预设固定EM=32 KB、2连接、4个ACL TX buffer、7个activity、CIS/BIS开、CTE关，这些编译选项不构成功能实测声明。`manifest.controller`记录原归档与导出库/配置入口；导出剥离调试后的归档哈希另列在`files`。
+- ABI与其他包内库一致：ELF32 little-endian RISC-V、`rv32imafc_xtheade`、`ilp32f`、`-fshort-enums`，Xuantie GCC 10.2.0 V2.6.1。全profile保留32 KB EM，普通固件也承担这项预留；不用BLE时不链入Controller成员或启动任务。BLE Host/AT/板卡GPIO不进入包。Wi-Fi与BLE通过`board_radio_init()`共享一次射频初始化。
 - `board/` 通过 SDK 的 board overlay 机制替换 `board.c`，只保留芯片级初始化。控制台改由 `board_console_init()` 按需开启；Wi-Fi 中断由 `board_wifi_irq_init()` 挂接，与 `board_init()` 分开，避免不用 Wi-Fi 的固件链入无线库。
 - `main.c` 只用于让 SDK 完成一次链接，不进入包；Wi-Fi 初始化顺序与 SDK 的 `examples/wifi/macsw_bare` 相同。
-- `link_groups.json` 定义链接组（目前只有 `wifi`），见下文“链接”。
+- `link_groups.json` 定义可选的`wifi`和`ble`链接组，见下文“链接”；BLEController库通过`ld_libs_ble`启用BLE组。
 
 ## 包结构
 
@@ -79,6 +81,6 @@ tools/install_check.sh ../arduino-bl \
 - 预编译无线库、工具链和烧录工具的再分发许可尚未核对，包只在本地使用。`tools/bflb_tools` 中的程序没有单独的许可声明。
 - 烧录工具只有 Linux x86_64 版本。
 - 包索引只在本地验证，尚无公网地址。
-- 包的运行期行为尚未在硬件上验证。
+- 0.5.0的BLE HCI/ACL/关闭重启与Wi-Fi TCP/USB并发有Linux + 1V0实机记录，见[ARDUINO-43任务](../.tasks/2026-10-26-arduino-43-ble-controller/STATUS.md)；官方ArduinoBLE示例、配对/加密、跨平台与统一候选长稳尚未验收。软件构建、导出及安装检查不计入实机通过项。
 
 本地共享入口：[底层包约定](../docs/development/dependency-release.md)、[开发规范](../AGENTS.md)、[待决事项](../docs/project/open-decisions.md)。

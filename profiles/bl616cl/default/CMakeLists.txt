@@ -13,7 +13,7 @@ endif()
 sdk_add_include_directories(.)
 sdk_add_include_directories(board)
 
-target_sources(app PRIVATE board/board_overlay.c board/board_wifi.c)
+target_sources(app PRIVATE board/board_overlay.c board/board_wifi.c board/board_radio.c)
 
 # TLS 根证书束（ticket 0029）：cacrt_all.pem 全部证书，不按 SDK 的 CSV 过滤；编进 libapp.a，随包发布
 set(CRT_DIR $ENV{BL_SDK_BASE}/components/crypto/mbedtls/bl_crt_bundle)
