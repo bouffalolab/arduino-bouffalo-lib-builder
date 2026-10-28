@@ -1,0 +1,3 @@
+# Maintainer host only. The distributed executable includes its interpreter.
+PyInstaller==6.15.0
+tomli==2.2.1

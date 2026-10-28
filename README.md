@@ -12,16 +12,18 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.5.0 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.6.0 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
   work/bouffalo_sdk work/build      # 之后的参数是测试时要隐藏的路径，原包目录会自动隐藏
 python3 tools/test_export_package.py # 导出逻辑的单元测试；设置 BL_TEST_GCC 时额外用真实 gcc 检查
 python3 tools/test_prepare_sdk_tree.py
+tools/build_layout_tool.sh work/layout-tool # Python 3.9.17, pinned requirements
 python3 tools/export_flash_tools.py \
   --sdk work/bouffalo_sdk --sources sources.json --chip bl616cl \
-  --version 0.1.1 --out work/out/bl-flash-tools
+  --version 0.2.0 --layout-tool work/layout-tool/dist/bl-layout \
+  --out work/out/bl-flash-tools
 python3 tools/test_export_flash_tools.py
 tools/install_check.sh ../arduino-bl \
   work/bouffalo_sdk work/build      # 本地包索引安装链检查；之后的参数是要隐藏的路径
@@ -68,7 +70,7 @@ tools/install_check.sh ../arduino-bl \
 
 ## 烧录工具包
 
-`bl-flash-tools` 从同一 SDK 检出的 `tools/bflb_tools` 原样复制 Linux x86_64 的 `bflb_fw_post_proc` 和 `BLFlashCommand`，以及所选芯片的烧录配置，结构见 `tools/export_flash_tools.py` 开头。`BLFlashCommand` 每次运行都会在自身目录下创建 `log/`，目录不可写时直接退出，所以安装目录必须可写；`bflb_fw_post_proc` 只写镜像所在目录。
+`bl-flash-tools` 从同一 SDK 检出的 `tools/bflb_tools` 原样复制 Linux x86_64 的 `bflb_fw_post_proc` 和 `BLFlashCommand`，以及所选芯片的烧录配置，结构见 `tools/export_flash_tools.py` 开头。`BLFlashCommand` 会改写自身目录；0.2.0 的 `bl-layout` 在构建目录创建运行副本，安装目录可只读；`bflb_fw_post_proc` 只写镜像所在目录。
 
 ## 本地包索引
 
@@ -84,3 +86,52 @@ tools/install_check.sh ../arduino-bl \
 - 0.5.0的BLE HCI/ACL/关闭重启与Wi-Fi TCP/USB并发有Linux + 1V0实机记录，见[ARDUINO-43任务](../.tasks/2026-10-26-arduino-43-ble-controller/STATUS.md)；官方ArduinoBLE示例、配对/加密、跨平台与统一候选长稳尚未验收。软件构建、导出及安装检查不计入实机通过项。
 
 本地共享入口：[底层包约定](../docs/development/dependency-release.md)、[开发规范](../AGENTS.md)、[待决事项](../docs/project/open-decisions.md)。
+
+## Program Flash storage (ARDUINO-46)
+
+The default profile exports only the pinned SDK littlefs 2.11 engine (disk 2.1),
+without SDK autoformat, KV or libc/VFS adapters. `LICENSE.littlefs` and the
+engine/layout identity are in the package manifest. Sketches consume this
+archive normally; no SDK build is invoked by the Arduino platform.
+
+`partition_cfg_4M_lfs_v1.toml` reserves `[0x310000,0x378000)` (416 KiB) for
+littlefs. FW0 `[0x10000,0x190000)` and FW1 `[0x190000,0x310000)` are each
+1.5 MiB. The `mfg` entry retains its name and aliases FW1 (factory-test firmware
+before shipping, OTA B afterward). media and parameter/factory addresses are
+unchanged. The physical filesystem partition name is `lfs` (the vendor image
+tool rejects names longer than seven ASCII characters). Runtime geometry is
+read from the active partition table, not a fixed-address header. The SDK
+`CONFIG_BFLB_MTD` component also owns `bflb_boot2.c`, so it is enabled for
+partition parsing; filesystem I/O calls Flash directly and does not use its
+MTD read/write wrappers.
+The ROM linker length excludes the 4 KiB firmware header and 6 KiB ROM header;
+oversized firmware fails linking before upload. Ordinary uploads use section
+erase and contain no filesystem image. Layout changes and old-layout firmware
+uploads require an explicit offline backup/migration; automatic migration and
+silent formatting are not provided. Runtime APIs and acceptance boundaries are
+documented in the platform's `libraries/LittleFS/README.md`.
+
+
+`bl-flash-tools 0.2.0` includes standalone `bl-layout` for the Arduino prebuild,
+post-process, advanced size, upload and export recipes. Maintainers freeze it
+with Python 3.9.17 and `tools/layout-tool-requirements.txt`:
+
+```sh
+# Maintenance host only; ordinary Arduino users need neither Python nor SDK.
+python3 -m pip install -r tools/layout-tool-requirements.txt
+tools/build_layout_tool.sh work/layout-tool
+python3 tools/export_flash_tools.py --sdk work/bouffalo_sdk --sources sources.json \
+  --chip bl616cl --version 0.2.0 --layout-tool work/layout-tool/dist/bl-layout \
+  --out work/out/bl-flash-tools-0.2.0
+python3 tools/test_bl_layout.py
+```
+
+The executable includes its interpreter/parser; runtime licenses are exported.
+The tool stores the selected TOML and its hash, derives a per-build ROM limit,
+checks post-processed image size and binds image/PT hashes before upload. A
+fresh `partition.bin` is required; a vendor tool that exits zero without
+creating it cannot silently reuse an older table. Arduino CLI export sidecars
+and the `bl-flash/` bundle preserve layout identity for standalone uploads.
+The FlashCommand runtime copy is writable under the build directory, keeping
+the installed tools unchanged. See the platform LittleFS README for customer
+Default/Custom/explicit-path usage and layout migration limits.

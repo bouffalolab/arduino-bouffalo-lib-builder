@@ -25,6 +25,8 @@ set_source_files_properties(arduino_crt_bundle.S PROPERTIES
     OBJECT_DEPENDS ${CRT_BIN} COMPILE_OPTIONS "-Wa,-I${CMAKE_CURRENT_BINARY_DIR}")
 target_sources(app PRIVATE arduino_crt_bundle.S)
 
+add_subdirectory(littlefs)
+
 sdk_set_main_file(main.c)
 
 project(arduino_bl_profile)

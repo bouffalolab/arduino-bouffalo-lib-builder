@@ -9,7 +9,7 @@
   manifest.json
 
 两个程序都是 PyInstaller 单文件程序，各自按自身所在目录查找配置。
-BLFlashCommand 每次运行都在自身目录下创建 log/，目录不可写时直接退出，所以安装目录必须可写；
+BLFlashCommand 会改写自身目录；bl-layout 在构建目录创建运行副本，工具安装目录可以只读；
 bflb_fw_post_proc 只写 --imgfile 所在目录。
 """
 
@@ -59,6 +59,17 @@ def write_tools(args, out):
         (out / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(tools_dir / rel, out / rel)  # 保留可执行权限
     shutil.copy2(sdk / "LICENSE", out / "LICENSE.bouffalo_sdk")
+    if getattr(args, "layout_tool", None):
+        binary = Path(args.layout_tool)
+        if not binary.is_file() or not binary.stat().st_mode & 0o111:
+            raise ValueError("layout tool is not executable")
+        shutil.copy2(binary, out / "bl-layout")
+        shutil.copy2(Path(__file__).with_name("bl_layout.py"), out / "bl_layout.py")
+        shutil.copy2(Path(__file__).resolve().parent.parent / "LICENSE", out / "LICENSE.bl-layout")
+        licenses = binary.parent.parent / "licenses"
+        if not licenses.is_dir():
+            raise ValueError("frozen layout tool runtime licenses are missing: " + str(licenses))
+        shutil.copytree(licenses, out / "licenses.bl-layout")
 
     files = sorted(p for p in out.rglob("*") if p.is_file())
     manifest = {
@@ -86,6 +97,7 @@ def main(argv=None):
     p.add_argument("--sdk", required=True, help="SDK 检出目录")
     p.add_argument("--sources", required=True, help="sources.json")
     p.add_argument("--chip", required=True, action="append", help="导出其烧录配置的芯片，可重复")
+    p.add_argument("--layout-tool", help="frozen standalone bl-layout executable for Arduino layout hooks")
     p.add_argument("--version", required=True)
     p.add_argument("--out", required=True, help="输出目录；已存在时只替换空目录或以前的导出")
     args = p.parse_args(argv)

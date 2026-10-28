@@ -517,6 +517,9 @@ def write_package(args, out):
 
     shutil.copy2(sdk / "LICENSE", out / "LICENSE.bouffalo_sdk")
 
+    if (out / "lib/libarduino_littlefs.a").exists():
+        shutil.copy2(sdk / "components/fs/littlefs/littlefs/LICENSE.md", out / "LICENSE.littlefs")
+
     strip_debug(tools["strip"], out / "lib")
     builder = Path(__file__).resolve().parent.parent
     check_no_host_paths(out, [str(tree), str(sdk), str(project), str(Path(args.toolchain_bin).resolve().parent),
@@ -546,6 +549,15 @@ def write_package(args, out):
             for p in files
         ],
     }
+    if (out / "lib/libarduino_littlefs.a").exists():
+        manifest["littlefs"] = {
+            "source_path": "components/fs/littlefs/littlefs",
+            "sdk_commit": sources["sdk"]["commit"],
+            "version": "2.11", "disk_version": "2.1",
+            "archive": "lib/libarduino_littlefs.a",
+            "partition": boot["partition"],
+        }
+        manifest["licenses"]["LICENSE.littlefs"] = "littlefs BSD-3-Clause"
     controller = next((Path(a) for a in archives
                        if Path(a).name == "libbtblecontroller_bl616cl_uarthci.a"), None)
     if controller is not None:
