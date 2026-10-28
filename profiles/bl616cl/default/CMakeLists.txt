@@ -13,6 +13,10 @@ endif()
 sdk_add_include_directories(.)
 sdk_add_include_directories(board)
 
+# The blob carries LTO IR; GCC 10 resolves its internal calls before --wrap.
+# Use its native objects so the hidden-beacon adapter is actually called.
+sdk_add_link_options("-fno-lto" "-Wl,--wrap=wl80211_mac_start_ap" "-Wl,--wrap=build_ie_ssid")
+
 target_sources(app PRIVATE board/board_overlay.c board/board_wifi.c board/board_radio.c)
 
 # TLS 根证书束（ticket 0029）：cacrt_all.pem 全部证书，不按 SDK 的 CSV 过滤；编进 libapp.a，随包发布

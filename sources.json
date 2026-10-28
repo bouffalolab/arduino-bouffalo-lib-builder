@@ -7,6 +7,14 @@
       {
         "file": "patches/sdk/lhal-usb-ep0-stall-cx-done.patch",
         "sha256": "42d599b53e6714b56786fb9d0eb88176b338fd361ebedd491136fd03ece94ba4"
+      },
+      {
+        "file": "patches/sdk/wl80211-ap-hidden-ssid.patch",
+        "sha256": "3c4fa25ec08b623bcf2b76838a78f0184c2d2dae76ead523f90a5cf0a29fe079"
+      },
+      {
+        "file": "patches/sdk/wl80211-lwip-ipv6-output.patch",
+        "sha256": "cb4273d07e4d3b922484e1ef867d7d631fdfc536b1440c7168556277d29ae1a4"
       }
     ]
   },

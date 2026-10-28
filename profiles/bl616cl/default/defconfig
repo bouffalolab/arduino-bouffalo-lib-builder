@@ -10,6 +10,7 @@ CONFIG_FREERTOS          =y
 CONFIG_POSIX             =n
 CONFIG_TLSF              =y
 CONFIG_LWIP              =y
+CONFIG_IPV6              =y
 CONFIG_WL80211           =y
 CONFIG_BL_WPA_SUPPLICANT =y
 CONFIG_WIFI6             =y

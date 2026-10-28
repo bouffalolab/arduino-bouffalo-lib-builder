@@ -1,0 +1,55 @@
+--- a/components/wireless/wl80211/wifi_mgmr.c
++++ b/components/wireless/wl80211/wifi_mgmr.c
+@@ -1336,6 +1336,34 @@
+     return 0;
+ }
+ 
++/* The pinned wl80211 blob clears ap_hidden_ssid and builds a visible
++ * beacon in wl80211_mac_start_ap. Interpose only its SSID IE construction:
++ * beacon uses an empty SSID, directed probe responses still use the real one.
++ * Keep this adapter with the pinned blob; no instruction bytes are patched.
++ */
++#define ARDUINO_AP_HIDDEN_FLAG 1U
++static bool arduino_build_hidden_beacon;
++extern int __real_wl80211_mac_start_ap(struct wl80211_ap_settings *settings);
++extern uint8_t *__real_build_ie_ssid(uint8_t *pos, const uint8_t *ssid);
++
++uint8_t *__wrap_build_ie_ssid(uint8_t *pos, const uint8_t *ssid)
++{
++    if (arduino_build_hidden_beacon) {
++        *pos++ = 0; /* SSID element */
++        *pos++ = 0;
++        return pos;
++    }
++    return __real_build_ie_ssid(pos, ssid);
++}
++
++int __wrap_wl80211_mac_start_ap(struct wl80211_ap_settings *settings)
++{
++    arduino_build_hidden_beacon = (settings->flags & ARDUINO_AP_HIDDEN_FLAG) != 0;
++    int ret = __real_wl80211_mac_start_ap(settings);
++    arduino_build_hidden_beacon = false;
++    return ret;
++}
++
+ int wifi_mgmr_ap_start(const wifi_mgmr_ap_params_t *config)
+ {
+     struct wl80211_ap_settings ap_setting;
+@@ -1360,6 +1388,8 @@
+         wl80211_printf("Starting AP: SSID=%s, Open\r\n", ap_setting.ssid);
+     }
+ 
++    ap_setting.flags = config->hidden_ssid ? ARDUINO_AP_HIDDEN_FLAG : 0;
++
+     /* Set AP parameters from config */
+     if (config->channel != 0) {
+         ap_setting.center_freq1 = wl80211_channel_to_freq(config->channel);
+@@ -1388,6 +1418,8 @@
+         return -1;
+     }
+ 
++    /* The blob cleared this bit while starting; restore it for wildcard probes. */
++    wl80211_glb.ap_hidden_ssid = config->hidden_ssid;
+     return 0;
+ }
+ 

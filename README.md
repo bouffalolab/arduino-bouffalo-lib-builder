@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.6.0 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.7.0 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -135,3 +135,9 @@ and the `bl-flash/` bundle preserve layout identity for standalone uploads.
 The FlashCommand runtime copy is writable under the build directory, keeping
 the installed tools unchanged. See the platform LittleFS README for customer
 Default/Custom/explicit-path usage and layout migration limits.
+
+## 0.7.0 网络配置
+
+profile 启用 IPv6，版本化补丁让 wl80211 的 IPv6 输出按 `LWIP_IPV6` 配置，不再依赖 fhost 专用的 `CFG_IPV6`。隐藏 AP 补丁在固定二进制构造 beacon 时输出空 SSID IE，定向 probe response 保留名称；启动后恢复其隐藏位以拒绝 wildcard probe。适配位于 SDK 侧，平台/bridge 不引用二进制内部符号。
+
+原厂库含 LTO IR；GCC 10 对库内部调用优化会绕过 GNU `--wrap`。profile 用 `-fno-lto` 选用原厂 fat object 中现有 native 指令，并按 `sources.json` 固定 SDK 与补丁 SHA；没有改写二进制指令。Arduino 普通构建仍只消费导出包。13 个普通 sketch 的编译/map/镜像检查已验证未使用 WiFi 的程序不会带入 WiFi 组；这些是辅助检查，实机结论以 ARDUINO-49 记录为准。

@@ -1,0 +1,19 @@
+--- a/components/wireless/wl80211/lwip.c
++++ b/components/wireless/wl80211/lwip.c
+@@ -6,6 +6,7 @@
+ #include <string.h>
+ 
+ #include <lwip/etharp.h>
++#include <lwip/ethip6.h>
+ #include <lwip/mem.h>
+ #include <lwip/netifapi.h>
+ #include <lwip/pbuf.h>
+@@ -260,7 +261,7 @@
+ 
+     net_if->output = etharp_output;
+ 
+-#ifdef CFG_IPV6
++#if LWIP_IPV6
+     net_if->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_ETHERNET | NETIF_FLAG_IGMP | NETIF_FLAG_MLD6 |
+                     NETIF_FLAG_UP;
+     net_if->output_ip6 = ethip6_output;

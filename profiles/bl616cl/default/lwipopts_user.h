@@ -132,6 +132,8 @@ static inline void *_lwip_calloc(size_t count, size_t size)
 #define LWIP_ERRNO_STDINCLUDE     1
 #define LWIP_SOCKET_SET_ERRNO     1
 
+#define LWIP_IPV6                 1
+#define LWIP_IPV6_MLD             1
 #define LWIP_DHCP                 1
 #define LWIP_DNS                  1
 #define LWIP_DNS_SERVER           0
