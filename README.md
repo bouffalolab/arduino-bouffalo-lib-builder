@@ -12,7 +12,7 @@ python3 tools/export_package.py \
   --build work/build/bl616cl-default --build-log work/build/bl616cl-default.log \
   --sdk work/bouffalo_sdk --sdk-tree work/build/bl616cl-default.sdk --sources sources.json \
   --toolchain-bin work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
-  --profile bl616cl/default --version 0.8.0 --out work/out/bl616cl-libs
+  --profile bl616cl/default --version 0.9.0 --out work/out/bl616cl-libs
 tools/smoke_test.sh work/out/bl616cl-libs \
   work/toolchain/xuantie-gcc-riscv-v2.6.1-linux-x86_64/bin \
   work/build/bl616cl-default/build/build_out/arduino_bl_profile_bl616cl.elf \
@@ -147,3 +147,9 @@ profile 启用 IPv6，版本化补丁让 wl80211 的 IPv6 输出按 `LWIP_IPV6` 
 profile 将固定 SDK 的 `sntp.c` 编入 `liblwip.a`，`LWIP_NETIF_HOSTNAME=1` 改变 netif ABI，必须完整导出并与平台一起更新。SNTP 通过 `board_time.c` 调用 newlib `settimeofday`。`newlib-mtimer-wall-clock.patch` 修正原 setter 把 RTC 闹钟 API 当计数器设时的问题，并使用同 Core 的系统微秒计时器推进 UTC，避免本板 RC32K 在实机离线时的明显漂移。补丁 SHA 固定于 `sources.json`；不重置 RTC、不改闹钟、不启用 TLS 证书日期检查。
 
 Arduino sketch 仍只消费预编译包，不运行 SDK 构建或修改安装目录。实机时钟、断网重同步、DHCP option 12 与 TLS 回归证据在 ARDUINO-45 task；构建、fake 和安装链仅为辅助检查。
+
+## 0.9.0 IPv4 UDP 组播
+
+profile启用`LWIP_IGMP=1`并完整重编导出。固定wl80211创建STA/AP两个带IGMP标志的netif；任意接口入组在两者各占一项。首轮实机复现默认8项IGMP池在第4个不同组时耗尽，现按现有8个netconn配置`MEMP_NUM_IGMP_GROUP = 2 * MEMP_NUM_NETCONN + 2`（18），含两个all-hosts项。没有增加socket上限或更改协议栈调度/分区/TLS策略；socket的入组登记和close自动退出仍使用SDK原有实现。
+
+普通Arduino构建仅消费匹配预编译库及配置头，不编译SDK。真实RA WiFiS3/vela组播、离组循环、广播和UDP/TCP/TLS资源回收见ARDUINO-50任务；软件/fake、编译/安装链均仅作为辅助证据。
