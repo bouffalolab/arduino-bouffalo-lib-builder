@@ -15,6 +15,10 @@
       {
         "file": "patches/sdk/wl80211-lwip-ipv6-output.patch",
         "sha256": "cb4273d07e4d3b922484e1ef867d7d631fdfc536b1440c7168556277d29ae1a4"
+      },
+      {
+        "file": "patches/sdk/newlib-mtimer-wall-clock.patch",
+        "sha256": "1c7109516b96231a7fd4d79ae42ab1a8601698dd6ca1e62d17660e18311b7d86"
       }
     ]
   },

@@ -1,0 +1,52 @@
+--- a/components/libc/newlib/port_time.c
++++ b/components/libc/newlib/port_time.c
+@@ -3,11 +3,11 @@
+ #include <sys/time.h>
+ #include <time.h>
+ 
+-#include "bflb_rtc.h"
++#include "bflb_mtimer.h"
+ 
+-static struct bflb_device_s *rtc = NULL;
+-
+-static uint32_t timestamp_base = 0;
++/* UTC offset from the system microsecond timer. RTC set_time programs an
++ * alarm, and the board RC32K source is not an accurate wall-clock timebase. */
++static int64_t timestamp_offset_us = 0;
+ static struct timezone tz = {
+     .tz_dsttime = 0,
+     .tz_minuteswest = 0
+@@ -55,14 +55,10 @@
+ {
+     struct timezone *tzp = tzvp;
+ 
+-    if (rtc == NULL) {
+-        rtc = bflb_device_get_by_name("rtc");
+-    }
+-
+     if (tp) {
+-        uint64_t ticks = bflb_rtc_get_time(rtc);
+-        tp->tv_sec = ticks / 32768 + timestamp_base;
+-        tp->tv_usec = (ticks & 0x7fff) * 31;
++        int64_t now = (int64_t)bflb_mtimer_get_time_us() + timestamp_offset_us;
++        tp->tv_sec = now / 1000000;
++        tp->tv_usec = now % 1000000;
+     }
+ 
+     if (tzp) {
+@@ -84,13 +80,9 @@
+ *****************************************************************************/
+ int _settimeofday_r(struct _reent *reent, const struct timeval *tp, const struct timezone *tzp)
+ {
+-    if (rtc == NULL) {
+-        rtc = bflb_device_get_by_name("rtc");
+-    }
+-
+     if (tp) {
+-        bflb_rtc_set_time(rtc, tp->tv_usec / 31);
+-        timestamp_base = tp->tv_sec;
++        timestamp_offset_us = (int64_t)tp->tv_sec * 1000000 + tp->tv_usec
++                            - (int64_t)bflb_mtimer_get_time_us();
+     }
+ 
+     if (tzp) {

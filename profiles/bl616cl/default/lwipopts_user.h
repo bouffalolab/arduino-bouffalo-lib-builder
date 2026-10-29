@@ -33,6 +33,19 @@
 #define LWIP_HDR_LWIPOPTS_H__
 
 #define LWIP_NETIF_API     1
+#define LWIP_NETIF_HOSTNAME 1
+
+/* Keep libc time and SNTP on the same system clock. TLS policy is separate. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+void board_sntp_set_time(unsigned int seconds);
+#ifdef __cplusplus
+}
+#endif
+#define SNTP_SET_SYSTEM_TIME(seconds) board_sntp_set_time(seconds)
+#define SNTP_CHECK_RESPONSE 1
+#define SNTP_STARTUP_DELAY 0
 #define LWIP_DEBUG         0
 #define LWIP_STATS_DISPLAY 0
 #define SOCKETS_DEBUG      LWIP_DBG_OFF
