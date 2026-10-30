@@ -1,11 +1,14 @@
 /*
- * Wi-Fi 中断挂接，原在 SDK bl616cldk/board.c 的 board_init() 中。
- * 单独成文件，使不使用 Wi-Fi 的固件不会因 interrupt0_handler 链入无线库。
+ * Wi-Fi IRQ hookup moved from SDK bl616cldk board_init. Keep it in a separate object so
+ * interrupt0_handler does not pull wireless libraries into sketches that do not use Wi-Fi.
  */
 #include "bflb_irq.h"
 #include "board.h"
 #include "bl616cl_glb.h"
 
+/**
+ * @brief Route and enable the SDK Wi-Fi interrupt independently of BLE startup.
+ */
 void board_wifi_irq_init(void)
 {
     extern void interrupt0_handler(void);

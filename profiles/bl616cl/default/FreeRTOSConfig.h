@@ -96,9 +96,14 @@ to exclude the API function. */
 #define INCLUDE_xTaskGetHandle           1
 #define INCLUDE_xSemaphoreGetMutexHolder 1
 
-/* Normal assert() semantics without relying on the provision of an assert.h
-header file. */
+/**
+ * @brief Normal assert() semantics without relying on the provision of an assert.h header
+ * file.
+ */
 void vApplicationMallocFailedHook(void);
+/**
+ * @brief Handle an SDK FreeRTOS assertion through the configured diagnostic hook.
+ */
 void vAssertCalled(void);
 #define configASSERT(x)                        \
     if ((x) == 0) {                            \
@@ -110,6 +115,9 @@ void vAssertCalled(void);
     }
 
 #if (configUSE_TICKLESS_IDLE != 0)
+/**
+ * @brief Provide the SDK tickless-idle sleep hook when enabled by the profile.
+ */
 void vApplicationSleep(uint32_t xExpectedIdleTime);
 #define portSUPPRESS_TICKS_AND_SLEEP(xExpectedIdleTime) vApplicationSleep(xExpectedIdleTime)
 #endif

@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""生成本地 Boards Manager 包索引与归档，用于验证安装链。
+"""Generate a local Boards Manager index and archives for installation tests. Inputs select
 
-  make_index.py --platform <arduino-bl 仓库> --libs <底层包目录> --flash-tools <烧录工具包目录>
-                --sources sources.json --toolchain-tarball <工具链 tar.xz> --base-url <URL> --out <目录>
-
-输出：
-  arduino-bl-<版本>.tar.gz          平台仓库 HEAD 的 git archive，版本取自 HEAD 的 platform.txt
-  <包名>-<版本>.tar.gz              底层包与烧录工具包，版本取自各自 manifest.json
-  <工具链 tar.xz>                    sources.json 固定的上游工具链归档，原样复制
-  package_bouffalolab_index.json    归档 URL 为 <base-url>/<文件名>
-
-归档内容按名称排序，时间戳、属主清零，同样输入得到同样的 SHA-256。只生成 Linux x86_64 条目。
+platform, libs, flash-tools, sources, pinned toolchain archive, base URL and output.
+Emit platform HEAD as arduino-bl-<version>.tar.gz, manifest-versioned dependency/tool
+packages, the unchanged pinned toolchain archive, and package_bouffalolab_index.json.
+Sort members and clear timestamps/owners for deterministic archive identity. Emit Linux
+x86_64 systems only.
 """
 
 import argparse
@@ -32,7 +27,7 @@ TOOLCHAIN_NAME = "xuantie-gcc-riscv"
 
 
 def parse_properties(text):
-    """Arduino 的 key=value 文本；忽略空行与 # 注释。"""
+    """Parse Arduino key=value text, ignoring blank lines and hash comments."""
     props = {}
     for line in text.splitlines():
         line = line.strip()
@@ -43,13 +38,18 @@ def parse_properties(text):
 
 
 def board_names(boards_txt):
+    """Extract display names from the platform board definitions."""
     props = parse_properties(boards_txt)
     return [props[k] for k in sorted(props) if k.count(".") == 1 and k.endswith(".name")]
 
 
 def tar_dir(src, root, dest):
-    """把 src 打成 dest（tar.gz），归档内只有一个顶层目录 root；保留权限位，清除时间与属主。"""
+    """Create a tar.gz with one root directory, retaining modes while clearing timestamps
+
+    and ownership.
+    """
     def reset(info):
+        """Normalize tar member ownership, names and timestamps for deterministic archives."""
         info.mtime = 0
         info.uid = info.gid = 0
         info.uname = info.gname = ""
@@ -64,6 +64,7 @@ def tar_dir(src, root, dest):
 
 
 def archive_entry(path, base_url):
+    """Describe an archive with its URL, size and SHA-256 for the package index."""
     return {
         "url": base_url.rstrip("/") + "/" + path.name,
         "archiveFileName": path.name,
@@ -73,15 +74,17 @@ def archive_entry(path, base_url):
 
 
 def git(repo, *args):
+    """Run Git in the explicitly selected source repository."""
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
 
 
 def make_index(args):
+    """Build the package index and archives from the requested fixed inputs."""
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=False)
     platform = Path(args.platform)
 
-    # 平台：HEAD 的内容，未提交的改动不进入归档
+    # Archive platform HEAD only; exclude uncommitted changes.
     version = parse_properties(git(platform, "show", "HEAD:platform.txt"))["version"]
     platform_archive = out / ("arduino-bl-%s.tar.gz" % version)
     subprocess.run(["git", "-C", str(platform), "archive", "--format=tar.gz",
@@ -126,6 +129,7 @@ def make_index(args):
 
 
 def main(argv=None):
+    """Parse options and run the make index validation or packaging command."""
     p = argparse.ArgumentParser(description="生成本地 Boards Manager 包索引与归档。")
     p.add_argument("--platform", required=True, help="arduino-bl 仓库，归档其 HEAD")
     p.add_argument("--libs", required=True, help="底层包目录，如 work/out/bl616cl-libs")

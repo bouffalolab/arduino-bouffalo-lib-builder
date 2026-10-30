@@ -1,13 +1,10 @@
 /*
- * 来源：bouffalo_sdk v2.3.37 (f924fbb) bsp/board/bl616cldk/board.c，Apache-2.0。
- * 本文件经 SDK 的 board_overlay 机制替换原 board.c，只保留芯片级初始化。
- * 相对原文的改动：
- *   1. 控制台不再固定在 UART0 GPIO34/35，board_init() 不初始化控制台；
- *      需要 SDK 日志时由调用方通过 board_console_init() 指定 UART 和引脚。
- *   2. board_init() 不再输出启动横幅、组件版本、trim 和 flash 信息。
- *   3. Wi-Fi 中断的挂接从 board_init() 移到 board_wifi.c 的 board_wifi_irq_init()，
- *      由 Wi-Fi 启动方调用；放在本文件会让任何固件经 interrupt0_handler 链入无线库。
- * 未调用 board_console_init() 时，SDK 内 printf 输出被丢弃。
+ * Derived from Apache-2.0 bouffalo_sdk v2.3.37 (f924fbb), bsp/board/bl616cldk/board.c. Replace it
+ * through board_overlay and retain chip-level initialization only. Changes: board_init no longer
+ * hardcodes UART0 GPIO34/35 or initializes a console; callers select debug UART/pins through
+ * board_console_init. Suppress startup banners, component versions, trim and Flash reports. Move
+ * Wi-Fi IRQ hookup into board_wifi.c so interrupt0_handler does not pull wireless libraries into
+ * every sketch. Without console initialization, SDK printf output is discarded.
  */
 
 #include <string.h>
@@ -41,6 +38,9 @@
 #include "psram_heap_init.h"
 #endif
 
+/**
+ * @brief Start the SDK logging backend when enabled.
+ */
 extern void log_start(void);
 
 extern uint32_t __HeapBase;
@@ -59,6 +59,9 @@ static const uint32_t any_alloc_order[] = {
 static struct bflb_device_s *rtc;
 #endif
 
+/**
+ * @brief Configure the SDK brownout detector and its interrupt.
+ */
 static void system_bod_init(void)
 {
     HBN_BOD_CFG_Type bodCfg;
@@ -72,6 +75,9 @@ static void system_bod_init(void)
     HBN_Set_BOD_Cfg(&bodCfg);
 }
 
+/**
+ * @brief Print the brownout diagnostic and halt in the SDK interrupt handler.
+ */
 static void system_bod_isr(int irq, void *arg)
 {
     printf("BOD interrupt occurred!\n");
@@ -80,6 +86,9 @@ static void system_bod_isr(int irq, void *arg)
     }
 }
 
+/**
+ * @brief Apply the profile's PLL, CPU and system clock configuration.
+ */
 static void ATTR_CLOCK_SECTION __attribute__((noinline)) system_clock_init(void)
 {
 #if 1
@@ -104,6 +113,9 @@ static void ATTR_CLOCK_SECTION __attribute__((noinline)) system_clock_init(void)
 }
 
 #ifndef CONFIG_LPAPP
+/**
+ * @brief Configure peripheral clock sources for the selected board profile.
+ */
 static void peripheral_clock_init(void)
 {
     PERIPHERAL_CLOCK_ADC_DAC_ENABLE();
@@ -141,6 +153,9 @@ static void peripheral_clock_init(void)
 
 #else
 
+/**
+ * @brief Apply peripheral clock settings for the optional low-power configuration.
+ */
 static void peripheral_clock_init_lp(void)
 {
     PERIPHERAL_CLOCK_UART0_ENABLE();
@@ -152,6 +167,9 @@ static void peripheral_clock_init_lp(void)
 extern const bflb_verinf_t app_ver;
 uint8_t efuse_version = 0xFF;
 
+/**
+ * @brief Check the SDK anti-rollback state when enabled by the profile.
+ */
 static void bflb_check_anti_rollback(void)
 {
     if (0 != bflb_get_app_version_from_efuse(&efuse_version)) {
@@ -183,6 +201,9 @@ static void bflb_check_anti_rollback(void)
 }
 #endif
 
+/**
+ * @brief Print enabled SDK build and chip information.
+ */
 void bl_show_log(void)
 {
     puts("\r\n");
@@ -197,6 +218,10 @@ void bl_show_log(void)
     puts("Copyright (c) 2022 Bouffalolab team\r\n");
 }
 
+/**
+ * @brief Return the next linker-collected component version string, advancing ctx; return NULL
+ * at the end.
+ */
 const char *bl_sys_version(const char ***ctx)
 {
     extern uint8_t _version_info_section_start;
@@ -218,6 +243,9 @@ const char *bl_sys_version(const char ***ctx)
     return version_str;
 }
 
+/**
+ * @brief Print the SDK component-version information.
+ */
 void bl_show_component_version(void)
 {
     const char *version_str;
@@ -253,6 +281,9 @@ void bl_show_component_version(void)
     }
 }
 
+/**
+ * @brief Print the chip's SDK trim and calibration information.
+ */
 void bflb_show_trim_info(void)
 {
     struct bflb_device_s *efuse_dev;
@@ -294,8 +325,14 @@ void bflb_show_trim_info(void)
     }
 }
 
+/**
+ * @brief Select the SDK console UART peripheral.
+ */
 extern void bflb_uart_set_console(struct bflb_device_s *dev);
 
+/**
+ * @brief Initialize the selected UART pins and baud rate as the SDK console.
+ */
 int board_console_init(const char *uart_name, uint8_t tx_pin, uint8_t rx_pin, uint32_t baudrate)
 {
     struct bflb_device_s *gpio;
@@ -349,6 +386,9 @@ int board_console_init(const char *uart_name, uint8_t tx_pin, uint8_t rx_pin, ui
 }
 
 #ifdef CONFIG_LPAPP
+/**
+ * @brief Run the SDK board recovery hook when enabled.
+ */
 void board_recovery(void)
 {
 #ifdef CONF_PSRAM_RESTORE
@@ -361,6 +401,9 @@ void board_recovery(void)
 #endif
 
 #ifdef CONFIG_HIGH_ISR_STACK
+/**
+ * @brief Initialize the SDK WFA support selected by the profile.
+ */
 void bflb_wfa_init(void)
 {
     extern void interrupt1_handler(void);
@@ -371,6 +414,9 @@ void bflb_wfa_init(void)
 }
 #endif
 
+/**
+ * @brief Register linker-defined RAM heap regions with the SDK allocator.
+ */
 void ram_heap_init(void)
 {
     size_t heap_len;
@@ -404,6 +450,9 @@ void ram_heap_init(void)
 }
 
 #define D(field, t) printf(#field ":" #t "\r\n", field)
+/**
+ * @brief Trigger the SDK diagnostic breakpoint instruction.
+ */
 static void ebreak_cpu(void)
 {
     printf("bus error/timeout occurs!\n");
@@ -412,11 +461,18 @@ static void ebreak_cpu(void)
 }
 #undef D
 
+/**
+ * @brief Return the board profile's configured 32 kHz RTC source.
+ */
 enum bflb_rtc_32k_clk_type board_get_rtc_32k_clk_type(void)
 {
     return BFLB_RTC_32K_CLK_RC;
 }
 
+/**
+ * @brief Initialize chip clocks, memory, interrupts and selected board peripherals before Core
+ * startup.
+ */
 void board_init(void)
 {
     int ret = -1;
@@ -501,6 +557,9 @@ void board_init(void)
     bflb_irq_enable(BMX_MCU_TO_IRQn);
 }
 
+/**
+ * @brief Initialize the optional board analog-comparator configuration.
+ */
 void board_acomp_init(void)
 {
     struct bflb_device_s *gpio;
@@ -528,16 +587,26 @@ void board_acomp_init(void)
 }
 
 #ifdef CONFIG_BFLB_LOG
+/**
+ * @brief Return the SDK logging timestamp from the hardware timer.
+ */
 __attribute__((weak)) uint64_t bflb_log_clock(void)
 {
     return bflb_mtimer_get_time_us();
 }
 
+/**
+ * @brief Return the SDK logging time value.
+ */
 __attribute__((weak)) uint32_t bflb_log_time(void)
 {
     return BFLB_RTC_TIME2SEC(bflb_rtc_get_time(rtc));
 }
 
+/**
+ * @brief Return the empty default logging thread label; applications may override this weak
+ * hook.
+ */
 __attribute__((weak)) char *bflb_log_thread(void)
 {
     return "";
@@ -545,11 +614,17 @@ __attribute__((weak)) char *bflb_log_thread(void)
 #endif
 
 #ifdef CONFIG_LUA
+/**
+ * @brief Return the SDK Lua clock value from the hardware timer.
+ */
 __attribute__((weak)) clock_t luaport_clock(void)
 {
     return (clock_t)bflb_mtimer_get_time_us();
 }
 
+/**
+ * @brief Return the SDK Lua wall-clock value and optionally store it through seconds.
+ */
 __attribute__((weak)) time_t luaport_time(time_t *seconds)
 {
     time_t t = (time_t)BFLB_RTC_TIME2SEC(bflb_rtc_get_time(rtc));
@@ -563,6 +638,9 @@ __attribute__((weak)) time_t luaport_time(time_t *seconds)
 
 #ifdef CONFIG_FATFS
 #include "bflb_timestamp.h"
+/**
+ * @brief Return the SDK timestamp used by optional FAT support.
+ */
 __attribute__((weak)) uint32_t get_fattime(void)
 {
     bflb_timestamp_t tm;
@@ -581,14 +659,23 @@ __attribute__((weak)) uint32_t get_fattime(void)
 #ifdef CONFIG_SHELL
 #include "shell.h"
 
+/**
+ * @brief Print SDK version information through the optional shell command.
+ */
 static void show_sys_version_cmd(int argc, char **argv)
 {
     bl_show_component_version();
 }
 SHELL_CMD_EXPORT_ALIAS(show_sys_version_cmd, sysver, show sys version);
 
+/**
+ * @brief Request the SDK power-on reset sequence.
+ */
 extern int bl_sys_reset_por(void);
 
+/**
+ * @brief Handle the optional SDK shell reboot command.
+ */
 static void reboot_cmd(int argc, char **argv)
 {
     if(argc > 1){
@@ -603,6 +690,9 @@ SHELL_CMD_EXPORT_ALIAS(reboot_cmd, reboot, reboot);
 #define MFG_CONFIG_REG (0x2000F100)
 #define MFG_CONFIG_VAL ("0mfg")
 
+/**
+ * @brief Prepare the SDK manufacturing-firmware configuration when enabled.
+ */
 void mfg_config(void)
 {
     union _reg_t {
@@ -615,6 +705,9 @@ void mfg_config(void)
     *(volatile uint32_t *)(MFG_CONFIG_REG) = mfg.word;
 }
 
+/**
+ * @brief Handle the optional SDK manufacturing-mode shell command.
+ */
 static void mfg_cmd(int argc, char **argv)
 {
     mfg_config();
@@ -625,6 +718,9 @@ SHELL_CMD_EXPORT_ALIAS(mfg_cmd, mfg, mfg);
 #ifdef CONFIG_LPAPP
 #include "bl_lp.h"
 
+/**
+ * @brief Print SDK GPIO wake-up status for the selected pin.
+ */
 static void test_io_wakeup_status(uint8_t io_num)
 {
     int wakeup_mode;
@@ -657,6 +753,9 @@ static void test_io_wakeup_status(uint8_t io_num)
     }
 }
 
+/**
+ * @brief Report only pins set in the SDK GPIO wake-up bitmask.
+ */
 static void test_wakeup_io_callback(uint64_t wake_up_io_bits)
 {
     printf("io wakeup bits 0x%llX\r\n", (unsigned long long)wake_up_io_bits);
@@ -669,6 +768,9 @@ static void test_wakeup_io_callback(uint64_t wake_up_io_bits)
     }
 }
 
+/**
+ * @brief Handle the optional SDK GPIO wake-up test command.
+ */
 void cmd_io_test(char *buf, int len, int argc, char **argv)
 {
     static lp_gpio_cfg_type lp_wake_io_cfg = { 0};

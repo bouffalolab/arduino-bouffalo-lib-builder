@@ -5,14 +5,14 @@ find_package(bouffalo_sdk REQUIRED HINTS $ENV{BL_SDK_BASE})
 # The SDK ships SNTP, but does not include it in the lwIP target by default.
 target_sources(liblwip PRIVATE $ENV{BL_SDK_BASE}/components/net/lwip/lwip/src/apps/sntp/sntp.c)
 
-# 构建机路径不进入库（__FILE__ 与调试信息）：build.sh 传入 work 目录，映射为 /work；
-# SDK 目录再映射为 .，与 SDK 自带的 -fmacro/-fdebug-prefix-map 结果相同（多个匹配时后出现者优先）
+# Exclude host paths from __FILE__/debug information by mapping build.sh's work root to /work.
+# Map the SDK root to '.', matching its macro/debug prefix maps; later matching options take precedence.
 if(DEFINED ENV{BL_PREFIX_MAP_ROOT})
     sdk_add_compile_options("-ffile-prefix-map=$ENV{BL_PREFIX_MAP_ROOT}=/work")
     sdk_add_compile_options("-ffile-prefix-map=$ENV{BL_SDK_BASE}=.")
 endif()
 
-# FreeRTOSConfig.h、lwipopts_user.h、usb_config.h、mbedtls_sample_config.h、board_overlay.h
+# Profile configuration headers: FreeRTOSConfig.h, lwipopts_user.h, usb_config.h, mbedtls_sample_config.h and board_overlay.h.
 sdk_add_include_directories(.)
 sdk_add_include_directories(board)
 
@@ -22,7 +22,7 @@ sdk_add_link_options("-fno-lto" "-Wl,--wrap=wl80211_mac_start_ap" "-Wl,--wrap=bu
 
 target_sources(app PRIVATE board/board_overlay.c board/board_wifi.c board/board_radio.c board/board_time.c)
 
-# TLS 根证书束（ticket 0029）：cacrt_all.pem 全部证书，不按 SDK 的 CSV 过滤；编进 libapp.a，随包发布
+# Generate the TLS root bundle from every cacrt_all.pem certificate, without the SDK CSV filter; include it in libapp.a.
 set(CRT_DIR $ENV{BL_SDK_BASE}/components/crypto/mbedtls/bl_crt_bundle)
 set(CRT_BIN ${CMAKE_CURRENT_BINARY_DIR}/arduino_crt_bundle.bin)
 add_custom_command(OUTPUT ${CRT_BIN}

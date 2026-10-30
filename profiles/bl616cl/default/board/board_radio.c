@@ -1,7 +1,13 @@
-/* Wi-Fi 和 BLE 共享射频初始化；由应用任务串行调用，避免第二次校准正在工作的射频。 */
+/*
+ * Share Wi-Fi/BLE radio initialization in a serialized application task, avoiding recalibration
+ * while another radio user is active.
+ */
 #include "board_overlay.h"
 #include "rfparam_adapter.h"
 
+/**
+ * @brief Initialize shared radio resources once for Wi-Fi and the BLE Controller.
+ */
 int board_radio_init(void)
 {
     static int result = 1;

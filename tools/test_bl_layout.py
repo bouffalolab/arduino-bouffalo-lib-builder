@@ -16,6 +16,7 @@ DEFAULT = ROOT / "profiles/bl616cl/default/partition_cfg_4M_lfs_v1.toml"
 
 class LayoutTest(unittest.TestCase):
     def setUp(self):
+        """Create isolated fixture inputs for each software test."""
         self.tmp = tempfile.TemporaryDirectory(prefix="layout checks ")
         self.root = Path(self.tmp.name)
         self.libs = self.root / "installed libs"
@@ -33,14 +34,17 @@ class LayoutTest(unittest.TestCase):
         self.base = layout.tomllib.loads(DEFAULT.read_text())
 
     def tearDown(self):
+        """Release this software test's temporary resources."""
         self.tmp.cleanup()
 
     def prepare(self):
+        """Prepare and validate the requested build inputs without modifying the installed package."""
         with contextlib.redirect_stdout(io.StringIO()):
             layout.prepare(self.args)
         return layout.load(self.build)
 
     def custom(self):
+        """Create a modified partition-table fixture for validation tests."""
         chunks = DEFAULT.read_text().split("[[pt_entry]]")
         for i in range(1, len(chunks)):
             c = chunks[i]
@@ -54,11 +58,13 @@ class LayoutTest(unittest.TestCase):
         return "[[pt_entry]]".join(chunks)
 
     def test_default_geometry_and_link_bound(self):
+        """Verify default geometry and link bound."""
         m = self.prepare()
         self.assertEqual(m["filesystem"], {"address": 0x310000, "size": 416 * 1024})
         self.assertIn("0x17d800", (self.build / "layout.ld").read_text())
 
     def test_custom_changes_capacity_without_rebuilding_libs(self):
+        """Verify custom changes capacity without rebuilding libs."""
         self.args.scheme = "custom"
         (self.sketch / "partitions.toml").write_text(self.custom())
         m = self.prepare()
@@ -67,43 +73,51 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("0xfd800", (self.build / "layout.ld").read_text())
 
     def test_missing_custom_does_not_fall_back(self):
+        """Verify missing custom does not fall back."""
         self.args.scheme = "custom"
         with self.assertRaises(FileNotFoundError): self.prepare()
 
     def test_explicit_relative_file_takes_priority(self):
+        """Verify explicit relative file takes priority."""
         self.args.scheme = "custom"
         self.args.file = "outside menu.toml"
         (self.sketch / self.args.file).write_text(self.custom())
         self.assertEqual(self.prepare()["fw_capacity"], 0x100000)
 
     def test_invalid_custom_table_fails(self):
+        """Verify invalid custom table fails."""
         self.args.file = "broken.toml"
         (self.sketch / self.args.file).write_text("invalid toml")
         with self.assertRaises(ValueError): self.prepare()
 
     def test_protected_regions_cannot_be_changed(self):
+        """Verify protected regions cannot be changed."""
         for name in ("Boot2", "media", "factory"):
             data = layout.tomllib.loads(DEFAULT.read_text())
             next(p for p in data["pt_entry"] if p["name"] == name)["size0"] += 4096
             with self.assertRaises(ValueError): layout.validate(data, self.base)
 
     def test_mfg_must_exactly_alias_fw1(self):
+        """Verify mfg must exactly alias fw1."""
         data = layout.tomllib.loads(DEFAULT.read_text())
         next(p for p in data["pt_entry"] if p["name"] == "mfg")["address0"] += 4096
         with self.assertRaises(ValueError): layout.validate(data, self.base)
 
     def test_overlapping_or_misaligned_fs_is_rejected(self):
+        """Verify overlapping or misaligned fs is rejected."""
         for field, value in (("address0", 0x300000), ("size0", 0x69000), ("size0", 8193)):
             data = layout.tomllib.loads(DEFAULT.read_text())
             next(p for p in data["pt_entry"] if p["name"] == "lfs")[field] = value
             with self.assertRaises(ValueError): layout.validate(data, self.base)
 
     def test_corrupt_layout_snapshot_is_rejected(self):
+        """Verify corrupt layout snapshot is rejected."""
         self.prepare()
         (self.build / "layout.toml").write_text(self.custom())
         with self.assertRaises(ValueError): layout.load(self.build)
 
     def images(self):
+        """Create matching image and metadata fixtures for artifact-validation tests."""
         m = self.prepare()
         (self.build / "Test.ino.bin").write_bytes(b"image")
         (self.build / "partition.bin").write_bytes(b"partition")
@@ -111,6 +125,7 @@ class LayoutTest(unittest.TestCase):
         (self.build / "layout.json").write_text(json.dumps(m))
 
     def test_export_is_independent_of_original_custom_file(self):
+        """Verify export is independent of original custom file."""
         self.args.file = "customer.toml"
         source = self.sketch / self.args.file
         source.write_text(self.custom())
@@ -122,6 +137,7 @@ class LayoutTest(unittest.TestCase):
         layout.load(self.args.destination, Path(self.args.destination) / "Test.ino.bin")
 
     def test_postprocessor_success_without_new_partition_cannot_reuse_stale_table(self):
+        """Verify postprocessor success without new partition cannot reuse stale table."""
         self.images()
         self.args.project = "Test.ino"
         self.args.tools = str(self.root / "tools")
@@ -132,6 +148,7 @@ class LayoutTest(unittest.TestCase):
                 layout.finalize(self.args)
 
     def test_cli_output_directory_prefixed_artifacts_are_self_contained(self):
+        """Verify cli output directory prefixed artifacts are self contained."""
         self.images()
         out = self.root / "CLI output directory"
         out.mkdir()
@@ -141,11 +158,13 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(layout.load(out, out / "Test.ino.bin")["fw_capacity"], 0x180000)
 
     def test_changed_image_is_rejected_before_uploader(self):
+        """Verify changed image is rejected before uploader."""
         self.images()
         (self.build / "Test.ino.bin").write_bytes(b"different")
         with self.assertRaises(ValueError): layout.load(self.build, self.build / "Test.ino.bin")
 
     def test_upload_uses_recorded_layout_and_excludes_fs(self):
+        """Verify upload uses recorded layout and excludes fs."""
         self.images()
         tools = self.root / "installed tools"
         (tools / "bouffalo_flash_cube").mkdir(parents=True)

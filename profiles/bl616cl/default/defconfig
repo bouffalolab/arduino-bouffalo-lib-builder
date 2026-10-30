@@ -1,9 +1,9 @@
-# arduino-bl 底层包 profile：bl616cl/default
-# Wi-Fi 用 wl80211 方案（用户 2026-10-22），组件与 Wi-Fi 配置沿用 SDK examples/wifi/macsw_bare/defconfig
-# （用户 2026-10-23）；USB device 为 CDC ACM + 可选 HID（ARDUINO-42）。
-# 与 macsw_bare 的差别：不开 SHELL、IPERF（Arduino 不提供 SDK 命令行），不含 bl618dg 与 GCOV 分支。
-# BLE 使用上游 BL616CL uarthci Controller，Host 在外部；不用 BLE 时不链入 Controller。
-# TLS（ticket 0029）另加 P-384、P-521、X25519 与证书束组件 bl_crt_bundle，其余 mbedTLS 选项用 SDK 默认值。
+# arduino-bl dependency profile: bl616cl/default.
+# Use wl80211 as selected on 2026-10-22; inherit components/Wi-Fi configuration from SDK macsw_bare.
+# USB device uses CDC ACM with optional HID, selected for ARDUINO-42 on 2026-10-23.
+# Unlike macsw_bare, omit SHELL/IPERF and bl618dg/GCOV branches; Arduino does not expose the SDK shell.
+# Use the upstream BL616CL uarthci Controller with an external Host; unused BLE does not link the Controller.
+# TLS adds P-384, P-521, X25519 and bl_crt_bundle; other mbedTLS settings retain SDK defaults.
 
 CONFIG_BFLB_LOG          =n
 CONFIG_FREERTOS          =y

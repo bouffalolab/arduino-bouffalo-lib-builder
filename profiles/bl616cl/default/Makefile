@@ -1,4 +1,4 @@
-# 由 build.sh 调用；BL_SDK_BASE 必须指向 builder 检出的 SDK。
+# Invoked by build.sh; BL_SDK_BASE must point to the builder-owned SDK checkout.
 SDK_DEMO_PATH ?= $(abspath .)
 CHIP ?= bl616cl
 BOARD ?= bl616cldk

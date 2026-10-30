@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""export_flash_tools.py 的测试。
+"""Test vendor-tool export. Arduino executes these tools directly and they resolve chip
 
-工具包由 Arduino 直接执行其中的程序，并按程序所在目录查找芯片配置：
-漏文件、丢可执行权限或混入未固定版本的 SDK，都要到上传时才会暴露。
+configuration beside themselves; missing files, lost executable modes or unpinned SDK
+inputs would otherwise fail only during upload.
 """
 
 import json
@@ -19,7 +19,10 @@ import export_flash_tools as eft  # noqa: E402
 
 
 def make_sdk(root):
-    """最小的 SDK 检出：固定程序、两个芯片的配置、LICENSE，提交到 git。"""
+    """Create and commit a minimal SDK fixture with fixed tools, two chip configurations
+
+    and LICENSE.
+    """
     tools = root / eft.TOOLS_DIR
     for rel in eft.FILES:
         (tools / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -40,25 +43,30 @@ def make_sdk(root):
 
 class ToolFilesTest(unittest.TestCase):
     def setUp(self):
+        """Create isolated fixture inputs for each software test."""
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         make_sdk(self.root)
         self.tools = self.root / eft.TOOLS_DIR
 
     def tearDown(self):
+        """Release this software test's temporary resources."""
         self.tmp.cleanup()
 
     def test_only_selected_chip_config_is_exported(self):
+        """Verify only selected chip config is exported."""
         rels = eft.tool_files(self.tools, ["bl616cl"])
         self.assertIn("bouffalo_flash_cube/chips/bl616cl/eflash_loader/eflash_loader_cfg.conf", rels)
         self.assertFalse(any("/chips/bl602/" in r for r in rels))
         self.assertTrue(set(eft.FILES) <= set(rels))
 
     def test_unknown_chip_fails(self):
+        """Verify unknown chip fails."""
         with self.assertRaises(ValueError):
             eft.tool_files(self.tools, ["bl999"])
 
     def test_missing_program_fails(self):
+        """Verify missing program fails."""
         (self.tools / "bouffalo_flash_cube" / "BLFlashCommand-ubuntu").unlink()
         with self.assertRaises(ValueError):
             eft.tool_files(self.tools, ["bl616cl"])
@@ -66,6 +74,7 @@ class ToolFilesTest(unittest.TestCase):
 
 class ExportTest(unittest.TestCase):
     def setUp(self):
+        """Create isolated fixture inputs for each software test."""
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.sdk = self.root / "sdk"
@@ -73,15 +82,18 @@ class ExportTest(unittest.TestCase):
         self.commit = make_sdk(self.sdk)
 
     def tearDown(self):
+        """Release this software test's temporary resources."""
         self.tmp.cleanup()
 
     def args(self, commit):
+        """Construct the command-line argument fixture for the selected source revision."""
         sources = self.root / "sources.json"
         sources.write_text(json.dumps({"sdk": {"repo": "r", "tag": "t", "commit": commit}}))
         return Namespace(sdk=str(self.sdk), sources=str(sources), chip=["bl616cl"], version="0.1.0",
                          out=str(self.root / "out"))
 
     def test_export_keeps_executables_and_lists_every_file(self):
+        """Verify export keeps executables and lists every file."""
         manifest = eft.export(self.args(self.commit), eft.write_tools)
         out = self.root / "out"
         for prog in ("bflb_fw_post_proc/bflb_fw_post_proc-ubuntu", "bouffalo_flash_cube/BLFlashCommand-ubuntu"):
@@ -91,6 +103,7 @@ class ExportTest(unittest.TestCase):
         self.assertEqual(manifest["sdk"]["commit"], self.commit)
 
     def test_sdk_not_at_pinned_commit_is_rejected(self):
+        """Verify sdk not at pinned commit is rejected."""
         with self.assertRaises(ValueError):
             eft.export(self.args("0" * 40), eft.write_tools)
         self.assertFalse((self.root / "out").exists())

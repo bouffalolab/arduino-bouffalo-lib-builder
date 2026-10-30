@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""从 SDK 检出导出 Arduino 工具包 bl-flash-tools：镜像后处理与串口烧录程序。
+"""Export Linux x86_64 SDK image-processing and serial-flashing tools as bl-flash-tools.
 
-只导出 Linux x86_64 程序。输出目录结构：
-
-  bflb_fw_post_proc/    bflb_fw_post_proc-ubuntu 及其 usage.txt、version_info.txt
-  bouffalo_flash_cube/  BLFlashCommand-ubuntu、version_info.txt、ReleaseNote_En.txt、chips/<芯片>/
-  LICENSE.bouffalo_sdk
-  manifest.json
-
-两个程序都是 PyInstaller 单文件程序，各自按自身所在目录查找配置。
-BLFlashCommand 会改写自身目录；bl-layout 在构建目录创建运行副本，工具安装目录可以只读；
-bflb_fw_post_proc 只写 --imgfile 所在目录。
+Include bflb_fw_post_proc with usage/version files; bouffalo_flash_cube with
+BLFlashCommand, version/release notes and the selected chips directory;
+LICENSE.bouffalo_sdk and manifest.json. Both vendor executables are PyInstaller one-file
+programs resolving configuration beside themselves. BLFlashCommand writes its directory,
+so bl-layout creates a build-local runner; installations may remain read-only. Post-
+processing writes only beside --imgfile.
 """
 
 import argparse
@@ -34,7 +30,10 @@ FILES = [
 
 
 def tool_files(tools_dir, chips):
-    """要导出的文件（相对 tools_dir）：固定程序与所选芯片的烧录配置；缺任何一项都报错。"""
+    """Return required tools_dir-relative executables and selected-chip configuration; fail
+
+    if any input is missing.
+    """
     rels = list(FILES)
     for chip in chips:
         chip_dir = tools_dir / "bouffalo_flash_cube" / "chips" / chip
@@ -48,6 +47,7 @@ def tool_files(tools_dir, chips):
 
 
 def write_tools(args, out):
+    """Copy the selected flash tools and write their provenance metadata."""
     sdk = Path(args.sdk).resolve()
     sources = json.loads(Path(args.sources).read_text())
     sdk_state = git_state(sdk)
@@ -57,7 +57,7 @@ def write_tools(args, out):
     tools_dir = sdk / TOOLS_DIR
     for rel in tool_files(tools_dir, args.chip):
         (out / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(tools_dir / rel, out / rel)  # 保留可执行权限
+        shutil.copy2(tools_dir / rel, out / rel)  # Preserve executable permissions.
     shutil.copy2(sdk / "LICENSE", out / "LICENSE.bouffalo_sdk")
     if getattr(args, "layout_tool", None):
         binary = Path(args.layout_tool)
@@ -93,6 +93,7 @@ def write_tools(args, out):
 
 
 def main(argv=None):
+    """Parse options and run the export flash tools validation or packaging command."""
     p = argparse.ArgumentParser(description="从 SDK 检出导出 bl-flash-tools 工具包。")
     p.add_argument("--sdk", required=True, help="SDK 检出目录")
     p.add_argument("--sources", required=True, help="sources.json")

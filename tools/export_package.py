@@ -1,24 +1,14 @@
 #!/usr/bin/env python3
-"""从 SDK 构建目录导出 arduino-bl 底层包。
+"""Export an arduino-bl dependency package from the profile build produced by build.sh;
 
-输入是 build.sh 产生的 profile 构建目录（CMake 构建根目录为 <build>/build）。
-输出目录结构：
-
-  include/   全部编译单元共有的 include 目录中的头文件，按 sdk/、build/、profile/ 分类
-  lib/       链接命令中的全部静态库，以及 libforce_<组>.a（见下）；均已剥离调试信息
-  ld/        预处理后的 linker.ld 及其 INCLUDE 的片段
-  boot/      镜像后处理使用的 boot2、分区表、dts
-  flags/     defines、includes、c_flags、S_flags、ld_flags、ld_libs、ld_libs_<组>，供 gcc @file 使用
-  manifest.json
-
-includes 使用 -iwithprefixbefore 相对路径，使用方需在其前传入 -iprefix <包>/include/。
-autoconfig.h 必须以 -include 注入所有编译单元，路径见 manifest 的 forced_include。
-导出的文件不能含构建机路径（构建时由 profile 把 work 目录映射为 /work），否则导出失败。
-
-SDK 以 --whole-archive 链接全部组件库，包不这样做，以免每个程序都带入网络栈。
-因此只靠 --whole-archive 才会生效的成员（覆盖工具链 libc 或弱定义的实现、只有局部定义的成员）
-被单独打成 libforce_<组>.a，由 ld_libs 或 ld_libs_<组> 以 --whole-archive 链入。
-组由 profile 的 link_groups.json 定义；不属于任何组的成员归入 base，所有程序都会链入。
+CMake lives under <build>/build. Output include/ with SDK/build/profile headers, lib/
+with stripped static and forced-member archives, ld/ with linker scripts/fragments,
+boot/ with image resources, flags/ with GCC response files, and manifest.json. Pair
+-iwithprefixbefore relative includes with -iprefix <package>/include/ and force
+autoconfig.h into every unit. Reject host paths. Unlike SDK whole-archive linking,
+retain only required overrides/local-only metadata through libforce_<group>.a.
+link_groups.json defines optional groups; unmatched members belong to the base group
+linked by every sketch.
 """
 
 import argparse
@@ -40,10 +30,10 @@ from prepare_sdk_tree import check_tree  # noqa: E402
 
 HEADER_SUFFIXES = {".h", ".hpp", ".inc"}
 
-# 后面紧跟一个独立参数的编译选项
+# Compiler options followed by a separate argument.
 ARG_OPTIONS = {"-o", "-include", "-MT", "-MF", "-MQ", "-isystem", "-x"}
 
-# 与路径、输出或语言标准相关，不进入包的编译选项
+# Path/output/language-standard options excluded from package compile flags.
 DROP_PREFIXES = (
     "-I",
     "-D",
@@ -57,21 +47,21 @@ DROP_PREFIXES = (
     "-ffile-prefix-map=",
     "-fdiagnostics-color",
     "-std=",
-    "-W",            # 警告级别由平台决定
+    "-W",            # The platform selects warning levels.
     "-save-temps",
 )
 DROP_EXACT = {"-c", "-MD", "-MMD", "-fstack-usage"}
 
-# nm -P 的符号类型：全局强定义、弱定义、未定义、局部定义
+# nm -P symbol kinds: strong global, weak, undefined and local definitions.
 STRONG_TYPES = set("TDBRSGA")
 WEAK_TYPES = set("WV")
 LOCAL_TYPES = set("tdbrsg")
 NM_LINE = re.compile(r"^.*\[(?P<member>[^\]]+)\]: (?P<sym>\S+) (?P<type>\S)")
 
-# --specs=nano.specs 时 gcc 隐式链接的库；SDK 的部分组件库覆盖其中的符号
+# Libraries implicitly linked by GCC with nano.specs; SDK components override some symbols.
 NANO_TOOLCHAIN_LIBS = ("libc_nano.a", "libm_nano.a", "libgloss_nano.a", "libgcc.a")
 
-# 链接命令中不进入 ld_flags 的选项
+# Link-command options excluded from ld_flags.
 LD_DROP_PREFIXES = ("-T", "-Wl,-Map=", "-L", "-l")
 LD_DROP_EXACT = {
     "-Wl,--cref",
@@ -82,7 +72,7 @@ LD_DROP_EXACT = {
 
 
 def group_args(tokens):
-    """把需要独立参数的选项与其参数合并为一个元素，如 ["-o x"]。"""
+    """Group options with separate arguments into one element, for example '-o x'."""
     out = []
     i = 0
     while i < len(tokens):
@@ -97,7 +87,10 @@ def group_args(tokens):
 
 
 def entry_args(entry):
-    """compile_commands 条目去掉编译器和源文件后的参数列表。"""
+    """Return compile_commands arguments without the compiler executable or source
+
+    filename.
+    """
     tokens = entry["arguments"] if "arguments" in entry else shlex.split(entry["command"])
     args = group_args(tokens[1:])
     source = entry["file"]
@@ -105,7 +98,7 @@ def entry_args(entry):
 
 
 def common_args(arg_lists):
-    """所有列表共有的参数，按第一个列表中的顺序。"""
+    """Return arguments common to every list, preserving first-list order."""
     if not arg_lists:
         return []
     rest = [set(a) for a in arg_lists[1:]]
@@ -121,20 +114,25 @@ def common_args(arg_lists):
 
 
 def portable_flags(args):
+    """Remove build-local paths and compile-only options from exported flags."""
     return [a for a in args if a not in DROP_EXACT and not a.startswith(DROP_PREFIXES)]
 
 
 def rsp_quote(arg):
-    """按 gcc 响应文件规则转义：空白、引号和反斜杠前加反斜杠。"""
+    """Quote a GCC response-file argument by escaping whitespace, quotes and backslashes."""
     return re.sub(r"([\s'\"\\])", r"\\\1", arg)
 
 
 def write_rsp(path, args):
+    """Write GCC response-file arguments with one escaped argument per line."""
     path.write_text("".join(rsp_quote(a) + "\n" for a in args))
 
 
 def parse_link(text, cwd):
-    """解析 CMake link.txt，返回 (archives, ld_flags, system_libs, lib_dirs)。"""
+    """Parse CMake link.txt into archives, linker flags, system libraries and library
+
+    directories.
+    """
     tokens = group_args(shlex.split(text))[1:]
     archives, ld_flags, system_libs, lib_dirs = [], [], [], []
     for tok in tokens:
@@ -154,12 +152,15 @@ def parse_link(text, cwd):
 
 
 def linker_includes(text):
-    """链接脚本中 INCLUDE 的文件名。"""
+    """Return filenames referenced by linker-script INCLUDE directives."""
     return re.findall(r"^\s*INCLUDE\s+(\S+)", text, flags=re.MULTILINE)
 
 
 def map_include_dir(path, roots):
-    """把绝对 include 目录映射为包内相对路径；roots 为 [(绝对根, 包内前缀)]。"""
+    """Map an absolute include directory to a package-relative path using absolute-
+
+    root/package-prefix pairs.
+    """
     path = os.path.normpath(path)
     for root, prefix in roots:
         root = os.path.normpath(root)
@@ -170,6 +171,7 @@ def map_include_dir(path, roots):
 
 
 def sha256_file(path):
+    """Return a streamed SHA-256 digest of the supplied file."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -178,14 +180,21 @@ def sha256_file(path):
 
 
 def git_state(repo):
-    """仓库的 HEAD 与是否有未提交改动；不是 git 仓库时报错。"""
+    """Return repository HEAD and dirty state; fail if the directory is not a Git
+
+    repository.
+    """
     def git(*a):
+        """Run Git in the explicitly selected source repository."""
         return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True).stdout
     return {"commit": git("rev-parse", "HEAD").strip(), "dirty": git("status", "--porcelain").strip() != ""}
 
 
 def copy_headers(src_dir, dst_dir, copied, skip_dirs=()):
-    """递归复制头文件；skip_dirs 中的目录（如嵌套在工程目录里的 CMake 构建目录）不进入。"""
+    """Copy headers recursively, excluding skip_dirs such as nested CMake build
+
+    directories.
+    """
     skip = {os.path.normpath(d) for d in skip_dirs}
     for dirpath, dirnames, filenames in os.walk(src_dir):
         dirnames[:] = [n for n in dirnames if os.path.normpath(os.path.join(dirpath, n)) not in skip]
@@ -202,7 +211,10 @@ def copy_headers(src_dir, dst_dir, copied, skip_dirs=()):
 
 
 def depfile_headers(text):
-    """解析 gcc -MD 依赖文件，返回其中的头文件路径；处理续行、CRLF、转义空格与 $$。"""
+    """Parse GCC -MD header dependencies, handling continuations, CRLF, escaped spaces and
+
+    doubled dollars.
+    """
     body = text.replace("\r\n", "\n").replace("\\\n", " ")
     paths = []
     for line in body.splitlines():
@@ -216,6 +228,7 @@ def depfile_headers(text):
 
 
 def post_proc_files(log_text):
+    """Extract image-resource paths from the SDK post-processing log."""
     m = re.search(r"--boot2file=(\S+)\s+--ptfile=(\S+)\s+--dtsfile=(\S+)", log_text)
     if not m:
         raise ValueError("post-process command not found in build log")
@@ -223,10 +236,10 @@ def post_proc_files(log_text):
 
 
 def parse_nm(text, members):
-    """解析 nm -A -P 的输出；members 为 ar t 列出的成员，没有符号的成员也保留。
+    """Parse nm -A -P output, retaining every ar-listed member even without symbols. Return
 
-    返回 {成员: {"strong": 集合, "weak": 集合, "undef": 集合, "local": 集合}}。
-    local 不含汇编器生成的 .L 标号。
+    per-member strong/weak/undefined/local symbol sets; exclude assembler-generated .L
+    labels from local definitions.
     """
     if len(members) != len(set(members)):
         raise ValueError("duplicate archive member names")
@@ -251,22 +264,21 @@ def parse_nm(text, members):
 
 
 def archive_symbols(tools, path):
+    """Read global/local symbol information from the selected archive."""
     members = subprocess.run([tools["ar"], "t", path], capture_output=True, text=True, check=True).stdout.split()
     nm = subprocess.run([tools["nm"], "-A", "-P", path], capture_output=True, text=True, check=True).stdout
     return parse_nm(nm, members)
 
 
 def forced_members(package, toolchain, groups):
-    """找出只靠 --whole-archive 才会生效的包内成员，按链接组分开。
+    """Find package members needing forced inclusion, grouped by link dependencies. Inputs
 
-    package、toolchain：{归档名: parse_nm() 结果}；groups：{组名: [归档名通配]}。
-    需要强制链入的成员：
-    - 强定义的符号在链接集合的其他成员中也有定义。不强制链入时，工具链 libc 或别处的弱定义
-      可能先满足引用，例如 newlib 的 malloc 取代 SDK 接到 TLSF 堆的 _malloc_r。
-    - 没有全局定义、但有局部定义。这类成员只能经 --whole-archive 进入，内容靠链接脚本 KEEP 保留，
-      例如放进 .version.* 段的版本字符串。配置关闭后为空的成员不强制。
-    成员所在归档属于某组，或它的某个未定义符号只能由同一组的归档提供时，归入该组，其余归入 base。
-    返回 {组名: [(归档名, 成员, 原因)]}。
+    map archive names to parsed symbols and groups to archive globs. Force strong
+    definitions also defined elsewhere, preventing toolchain libc/weak fallbacks from
+    satisfying them first (for example SDK TLSF _malloc_r). Also force local-only
+    members retained by linker KEEP, such as version metadata, but not empty disabled
+    objects. Assign members by archive group or exclusive unresolved-symbol dependency;
+    otherwise use base. Return group -> (archive, member, reason) entries.
     """
     providers = defaultdict(set)
     for libs in (package, toolchain):
@@ -276,6 +288,7 @@ def forced_members(package, toolchain, groups):
                     providers[s].add((lib, member))
 
     def group_of(lib):
+        """Select the optional link group associated with an archive."""
         return next((g for g, pats in groups.items() if any(fnmatch.fnmatch(lib, p) for p in pats)), None)
 
     result = defaultdict(list)
@@ -301,7 +314,10 @@ def forced_members(package, toolchain, groups):
 
 
 def write_forced_archive(tools, archives, entries, dest):
-    """取出成员原样打包，成员名为“原归档名@原成员名”；ar 的 D 选项使结果与时间和用户无关。"""
+    """Extract and rearchive members unchanged as original-archive@member; ar D removes
+
+    timestamp/user dependence.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         files = []
         for lib, member, _ in entries:
@@ -313,7 +329,7 @@ def write_forced_archive(tools, archives, entries, dest):
 
 
 def toolchain_libs(gcc, ld_flags):
-    """gcc 按 ld_flags 的多库选项隐式链接的库的路径。"""
+    """Return GCC implicit library paths selected by the ld_flags multilib options."""
     if "--specs=nano.specs" not in ld_flags:
         raise ValueError("only --specs=nano.specs links are supported")
     multilib = [f for f in ld_flags if f.startswith(("-march=", "-mabi="))]
@@ -328,21 +344,29 @@ def toolchain_libs(gcc, ld_flags):
 
 
 def relativize_sdk_paths(path, tree):
-    """autoconfig.h 中由 SDK Kconfig 默认值带入的 SDK 目录绝对路径（BOOT2FILE、DTSFILE、PTFILE，
-    只供 SDK 的 CMake 烧录脚本使用，C 代码不引用）改为相对 SDK 根目录。"""
+    """Make SDK Kconfig default BOOT2FILE/DTSFILE/PTFILE paths relative in autoconfig.h.
+
+    These values serve SDK CMake flashing and are not referenced by C code.
+    """
     text = path.read_text()
     path.write_text(text.replace(tree + os.sep, ""))
 
 
 def strip_debug(strip, lib_dir):
-    """剥离库的调试信息（约占 lib 的三分之一）；符号与 LTO 段保留，链接出的镜像不变。
-    -D 让归档成员的时间与 uid 固定，否则同一输入每次导出的 .a 都不同。"""
+    """Strip library debug information while preserving symbols/LTO and linked image
+
+    contents. Use deterministic archive metadata (-D) so timestamps and uid do not
+    change hashes.
+    """
     for a in sorted(lib_dir.glob("*.a")):
         subprocess.run([strip, "-D", "--strip-debug", str(a)], capture_output=True, text=True, check=True)
 
 
 def check_no_host_paths(out, roots):
-    """导出的全部文件（含 .a）都不能含构建机路径：否则包随构建目录变化、无法按哈希核对重建，并泄露用户目录。"""
+    """Reject host build paths in all exported files, including archives, to preserve
+
+    relocation/provenance and avoid exposing user directories.
+    """
     needles = sorted({r.encode() for r in roots}, key=len, reverse=True)
     bad = []
     for p in sorted(out.rglob("*")):
@@ -356,6 +380,7 @@ def check_no_host_paths(out, roots):
 
 
 def is_previous_export(path):
+    """Identify an existing package directory eligible for controlled replacement."""
     try:
         manifest = json.loads((path / "manifest.json").read_text())
     except (OSError, ValueError):
@@ -364,7 +389,10 @@ def is_previous_export(path):
 
 
 def sdk_tree(tree_arg, sdk, pinned):
-    """构建所用的 SDK 目录。sources.json 列有补丁时，必须给出 prepare_sdk_tree.py 生成的目录。"""
+    """Return the actual build SDK tree; pinned patches require a tree produced by
+
+    prepare_sdk_tree.py.
+    """
     if tree_arg is None:
         if pinned.get("patches"):
             raise ValueError("sources.json lists SDK patches; pass --sdk-tree with the patched build tree")
@@ -375,13 +403,19 @@ def sdk_tree(tree_arg, sdk, pinned):
 
 
 def check_replaceable(out):
-    """out 只能不存在、是空目录或本工具以前的导出，避免误删其他目录。"""
+    """Allow out only when absent, empty or recognized as a previous export, preventing
+
+    unrelated deletion.
+    """
     if out.exists() and not (out.is_dir() and (not any(out.iterdir()) or is_previous_export(out))):
         raise ValueError("refusing to replace %s: not empty and not a previous export" % out)
 
 
 def export(args, write=None):
-    """由 write(args, 临时目录) 导出到 out 旁的临时目录，成功后再替换 out；失败时 out 保持不变。"""
+    """Export through write(args, temporary-directory) beside out, replacing out only on
+
+    success; failures leave the old export intact.
+    """
     out = Path(args.out).resolve()
     check_replaceable(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -399,6 +433,7 @@ def export(args, write=None):
 
 
 def write_package(args, out):
+    """Write package libraries, headers, linker resources, flags and source manifest."""
     project = Path(args.build).resolve()
     cmake_dir = project / "build"
     sdk = Path(args.sdk).resolve()
@@ -406,19 +441,19 @@ def write_package(args, out):
     sdk_state = git_state(sdk)
     if sdk_state != {"commit": sources["sdk"]["commit"], "dirty": False}:
         raise ValueError("SDK checkout %s does not match sources.json: %r" % (sdk, sdk_state))
-    # 构建所用的 SDK 目录：头文件与 include 路径按它映射，补丁由它的标记核对
+    # Map headers/includes against the actual build SDK tree and verify its recorded patches.
     tree = sdk_tree(args.sdk_tree, sdk, sources["sdk"])
     for sub in ("include", "lib", "ld", "boot", "flags"):
         (out / sub).mkdir(parents=True)
 
     roots = [(str(tree), "sdk"), (str(cmake_dir), "build"), (str(project), "profile")]
 
-    # 编译参数
+    # Compile flags.
     entries = json.loads((cmake_dir / "compile_commands.json").read_text())
     all_args = [entry_args(e) for e in entries]
     c_args = [a for e, a in zip(entries, all_args) if e["file"].endswith(".c")]
     s_args = [a for e, a in zip(entries, all_args) if e["file"].endswith((".S", ".s"))]
-    # 全局 defines 和 include 目录以 C 编译单元的交集为准，汇编单元可能缺少部分全局项
+    # Derive global defines/includes from C-unit intersections; assembly units may omit some global settings.
     shared = common_args(c_args)
 
     defines = [a for a in shared if a.startswith("-D")]
@@ -432,12 +467,12 @@ def write_package(args, out):
     for d in include_dirs:
         rel = map_include_dir(d, roots)
         include_rel.append(rel)
-        # SDK 根目录也在全局 include 路径中，递归会带入整个 SDK；它只按依赖文件补齐
+        # Do not recursively copy the SDK root include directory, which would include the whole SDK; fill it from dependency files only.
         if os.path.normpath(d) == str(tree):
             continue
         copy_headers(d, out / "include" / rel, copied, skip_dirs=[str(cmake_dir)])
 
-    # 补齐构建实际用到、但不在上面目录中的 SDK 头文件
+    # Add SDK headers actually used but outside the common include directories.
     for dep in cmake_dir.rglob("*.d"):
         for h in depfile_headers(dep.read_text(errors="replace")):
             if not h.startswith(str(tree) + os.sep):
@@ -457,7 +492,7 @@ def write_package(args, out):
     write_rsp(out / "flags" / "c_flags", portable_flags(common_args(c_args)))
     write_rsp(out / "flags" / "S_flags", portable_flags(common_args(s_args)))
 
-    # 链接参数与库
+    # Link flags and libraries.
     link_txt = next(cmake_dir.glob("CMakeFiles/*.elf.dir/link.txt"))
     archives, ld_flags, system_libs, lib_dirs = parse_link(link_txt.read_text(), cmake_dir)
     lib_names = []
@@ -469,7 +504,7 @@ def write_package(args, out):
         lib_names.append("-l" + name[3:-2])
     write_rsp(out / "flags" / "ld_flags", ld_flags)
 
-    # 只靠 --whole-archive 生效的成员
+    # Members effective only under --whole-archive.
     compiler = os.path.basename((entries[0]["arguments"] if "arguments" in entries[0]
                                  else shlex.split(entries[0]["command"]))[0])
     if not compiler.endswith("gcc"):
@@ -493,7 +528,7 @@ def write_package(args, out):
     for group in groups:
         write_rsp(out / "flags" / ("ld_libs_" + group), whole.get(group, []))
 
-    # 链接脚本与 INCLUDE 片段
+    # Linker script and INCLUDE fragments.
     ld_src = cmake_dir / "generated" / "linker.ld"
     shutil.copy2(ld_src, out / "ld" / "linker.ld")
     pending = linker_includes(ld_src.read_text())
@@ -509,7 +544,7 @@ def write_package(args, out):
         done.add(name)
         pending.extend(linker_includes(found.read_text()))
 
-    # 镜像后处理资源
+    # Image post-processing resources.
     boot = {}
     for key, src in post_proc_files(Path(args.build_log).read_text(errors="replace")).items():
         shutil.copy2(src, out / "boot" / os.path.basename(src))
@@ -575,6 +610,7 @@ def write_package(args, out):
 
 
 def main(argv=None):
+    """Parse options and run the export package validation or packaging command."""
     p = argparse.ArgumentParser(description="从 SDK 构建目录导出 arduino-bl 底层包。")
     p.add_argument("--build", required=True, help="profile 构建目录，如 work/build/bl616cl-default")
     p.add_argument("--build-log", required=True, help="build.sh 生成的构建日志")

@@ -80,10 +80,10 @@ tools/install_check.sh ../arduino-bl \
 
 ## 未完成
 
-- 预编译无线库、工具链和烧录工具的再分发许可尚未核对，包只在本地使用。`tools/bflb_tools` 中的程序没有单独的许可声明。
+- ARDUINO-54 已按用户确认的 Bouffalo Lab 提供许可口径收口厂家无线库、工具链和工具；内嵌第三方工具按用户要求不继续展开审核。该范围确认不等同公开发布批准，候选仍仅供本地评审。
 - 烧录工具只有 Linux x86_64 版本。
 - 包索引只在本地验证，尚无公网地址。
-- 0.5.0的BLE HCI/ACL/关闭重启与Wi-Fi TCP/USB并发有Linux + 1V0实机记录，见[ARDUINO-43任务](../.tasks/2026-10-26-arduino-43-ble-controller/STATUS.md)；官方ArduinoBLE示例、配对/加密、跨平台与统一候选长稳尚未验收。软件构建、导出及安装检查不计入实机通过项。
+- 0.5.0的BLE HCI/ACL/关闭重启与Wi-Fi TCP/USB并发有Linux + 1V0实机记录，见[ARDUINO-43任务](../.tasks/2026-10-26-arduino-43-ble-controller/STATUS.md)；ARDUINO-44 后续完成7个官方示例和公共地址/RAM密钥配对加密，5例缺配件未验收；ARDUINO-53 已完成截至16:00的统一候选回归及BlueZ显式RA补丁重连。跨平台、RPA、掉电密钥保存仍未验收。软件构建、导出及安装检查不计入实机通过项。
 
 本地共享入口：[底层包约定](../docs/development/dependency-release.md)、[开发规范](../AGENTS.md)、[待决事项](../docs/project/open-decisions.md)。
 

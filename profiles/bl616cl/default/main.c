@@ -1,9 +1,7 @@
 /*
- * 载体工程入口：只为让 SDK 完成一次完整链接，验证本 profile 的库可以闭合，
- * 并产生 linker.ld 与链接参数。导出底层包时不包含本文件；
- * Arduino 固件的 main 由 Core 提供。
- * Wi-Fi 使用 wl80211 方案，初始化顺序与 SDK examples/wifi/macsw_bare 相同，去掉了 shell；
- * Wi-Fi 中断改由 board_wifi_irq_init() 挂接（见 board_overlay.c）。
+ * SDK carrier entry point used only to close a complete profile link and capture linker.ld/flags.
+ * Do not export this object; Arduino firmware gets main from the Core. Follow macsw_bare wl80211
+ * initialization without the shell; board_wifi_irq_init owns Wi-Fi IRQ hookup.
  */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -19,6 +17,9 @@
 #include "usbd_cdc_acm.h"
 #include "btble_lib_api.h"
 
+/**
+ * @brief Drain deferred radio events while preserving the SDK scheduler exclusion convention.
+ */
 static void async_event_handler(void *arg1, uint32_t arg2)
 {
     vTaskSuspendAll();
@@ -26,6 +27,9 @@ static void async_event_handler(void *arg1, uint32_t arg2)
     xTaskResumeAll();
 }
 
+/**
+ * @brief Schedule deferred async-event processing with a timer-task-safe wait policy.
+ */
 static void async_event_loop_wake(void)
 {
     TickType_t wait = portMAX_DELAY;
@@ -36,6 +40,10 @@ static void async_event_loop_wake(void)
     xTimerPendFunctionCall(async_event_handler, NULL, 0, wait);
 }
 
+/**
+ * @brief Start Wi-Fi firmware, lwIP and management in their required order, then delete this
+ * startup task.
+ */
 static void wifi_start_firmware_task(void *param)
 {
     wifi_task_create();
@@ -45,6 +53,10 @@ static void wifi_start_firmware_task(void *param)
     vTaskDelete(NULL);
 }
 
+/**
+ * @brief Link the dependency carrier for packaging checks; this SDK entry is not exported into
+ * sketch startup.
+ */
 int main(void)
 {
     board_init();
@@ -57,7 +69,7 @@ int main(void)
     async_event_init(async_event_loop_wake);
     btble_controller_init(configMAX_PRIORITIES - 2);
 
-    /* 引用 CherryUSB device 入口，确认 USB 库能链接；载体不初始化 USB。 */
+    /* Reference CherryUSB to verify link closure without initializing USB in the carrier. */
     volatile void *usb_entry = (void *)usbd_initialize;
     (void)usb_entry;
 

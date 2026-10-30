@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# 底层包冒烟测试：只用包内文件编译、链接两个程序。
-# 用法：tools/smoke_test.sh <包目录> <工具链 bin 目录> <SDK 原生 ELF> [隐藏路径...]
+# Smoke-test dependency linking using only packaged files for two programs.
+# Usage: tools/smoke_test.sh <package> <toolchain-bin> <native-SDK-ELF> [hidden-path...]
 #
-# 1. 把包复制到新的临时路径，验证可重定位；
-# 2. 在 bubblewrap 中把原包目录和隐藏路径（SDK 检出、构建目录等）换成空目录后编译；
-# 3. rtos：只用 FreeRTOS，检查 main 来自测试程序、堆函数来自 SDK libc 移植层、
-#    未链入 wifi 链接组的归档；
-# 4. wifi：用 profile 的载体 main.c 加 ld_libs_wifi，检查不用 --whole-archive 也能闭合链接，
-#    SDK 原生链接中有内容的归档成员都已链入，原生 ELF 中非空的输出段都存在。
+# 1. Copy the package to a temporary root to check relocation.
+# 2. Hide original package/SDK/build paths with bubblewrap before compilation.
+# 3. rtos uses FreeRTOS only; main must come from the test and heap functions from the SDK libc port.
+# No archive member from the Wi-Fi link group may be included.
+# 4. wifi uses carrier main.c and ld_libs_wifi to check link closure without whole-archiving every archive.
+# Require the native reference's contributing archive members and nonempty output sections.
 set -euo pipefail
 
 PKG_SRC=$(realpath -e "$1")
@@ -17,7 +17,7 @@ REF_MAP=${REF_ELF%.elf}.map
 shift 3
 HIDE=("$PKG_SRC")
 for h in "$@"; do
-    HIDE+=("$(realpath -e "$h")")  # 路径写错时 bwrap 不报错，隔离会静默失效
+    HIDE+=("$(realpath -e "$h")")  # Reject nonexistent hidden paths; bwrap would otherwise silently skip isolation.
 done
 [ -f "$REF_MAP" ] || { echo "missing $REF_MAP" >&2; exit 2; }
 
@@ -70,6 +70,7 @@ done
 "${BWRAP[@]}" bash "$TMP/build.sh" "$TMP" "$PKG" "$TC_BIN"
 
 fail=0
+# Validate the selected artifact or fixture and raise an error on a failed invariant.
 check() { if eval "$2"; then echo "PASS $1"; else echo "FAIL $1"; fail=1; fi; }
 CHECK_LINK=(python3 -I "$ROOT/tools/check_link.py")
 
@@ -82,6 +83,7 @@ check "wifi: 链接闭合并含 wl80211_init" 'grep -q " T wl80211_init$" "$TMP/
 check "wifi: SDK 原生链接中有内容的包内成员都已链入" \
     '"${CHECK_LINK[@]}" parity "$PKG/manifest.json" "$REF_MAP" "$TMP/wifi.map"'
 
+# Inspect expected image sections with the selected cross-toolchain.
 sections() { "$TC_BIN/riscv64-unknown-elf-size" -A "$1" | awk 'NR>2 && $1 ~ /^\./ {print $1, $2}'; }
 join -a1 -e 0 -o 0,1.2,2.2 <(sections "$REF_ELF" | sort) <(sections "$TMP/wifi.elf" | sort) |
     awk '$2 > 0 && $3 == 0 {print "  " $1 " ref=" $2 " ours=" $3}' >"$TMP/missing_sections"

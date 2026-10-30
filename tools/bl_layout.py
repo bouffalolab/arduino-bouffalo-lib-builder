@@ -17,10 +17,12 @@ SCHEMA = "arduino-bl-layout/v1"
 
 
 def digest(path):
+    """Return the SHA-256 digest of the supplied file."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def validate(data, baseline):
+    """Validate partition geometry and protected-region invariants against the baseline."""
     entries = data["pt_entry"]
     for part in entries:
         name = part["name"]
@@ -72,6 +74,7 @@ def validate(data, baseline):
 
 
 def prepare(args):
+    """Prepare and validate the requested build inputs without modifying the installed package."""
     libs, build, sketch = Path(args.libs), Path(args.build), Path(args.sketch)
     baseline_path = libs / "boot" / args.default
     if args.file:
@@ -106,6 +109,7 @@ def prepare(args):
 
 
 def artifact_paths(build, image=None):
+    """Resolve the build-local firmware and layout artifact paths."""
     build = Path(build)
     if (build / "layout.json").is_file() or image is None:
         return build / "layout.json", build / "layout.toml", build / "partition.bin"
@@ -114,6 +118,7 @@ def artifact_paths(build, image=None):
 
 
 def load(build, image=None):
+    """Load layout sidecars and verify their schema, table and partition identities."""
     manifest, table, partition = artifact_paths(build, image)
     m = json.loads(manifest.read_text())
     if m["schema"] != SCHEMA or digest(table) != m["layout_sha256"]:
@@ -127,6 +132,7 @@ def load(build, image=None):
 
 
 def finalize(args):
+    """Post-process the linked image and freeze its validated layout and dependency identity."""
     build, libs, tools = Path(args.build), Path(args.libs), Path(args.tools)
     m = load(build)
     if digest(build / "layout.ld") != m["linker_sha256"]:
@@ -148,6 +154,7 @@ def finalize(args):
 
 
 def report_size(args):
+    """Print firmware size and the selected partition capacity for Arduino size reporting."""
     build = Path(args.build)
     m = load(build, build / (args.project + ".bin"))
     text = subprocess.check_output([args.size_tool, "-A", str(build / (args.project + ".elf"))], text=True)
@@ -172,6 +179,7 @@ def report_size(args):
 
 
 def upload(args):
+    """Validate finalized artifact identity, then invoke the build-local flash runner."""
     build, libs, tools = Path(args.build), Path(args.libs), Path(args.tools)
     image = build / (args.project + ".bin")
     m = load(build, image)
@@ -187,6 +195,7 @@ def upload(args):
 
 
 def export_images(args):
+    """Export finalized firmware images with their matching layout metadata."""
     build = Path(args.build)
     image = build / (args.project + ".bin")
     load(build, image)
@@ -202,6 +211,7 @@ def export_images(args):
 
 
 def main(argv=None):
+    """Parse options and run the bl layout validation or packaging command."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("prepare")

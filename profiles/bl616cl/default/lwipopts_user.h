@@ -39,6 +39,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/**
+ * @brief Store synchronized epoch seconds through the platform time hook.
+ */
 void board_sntp_set_time(unsigned int seconds);
 #ifdef __cplusplus
 }
@@ -88,17 +91,29 @@ void board_sntp_set_time(unsigned int seconds);
 #include <string.h>
 
 #ifndef mem_clib_free
+/**
+ * @brief Release memory to the SDK Wi-Fi RAM allocator.
+ */
 void wl80211_platform_free_wram(void *ptr);
 #define mem_clib_free(x) wl80211_platform_free_wram(x)
 #endif
 
 #ifndef mem_clib_malloc
+/**
+ * @brief Allocate memory from the SDK Wi-Fi RAM pool.
+ */
 void *wl80211_platform_malloc_wram(size_t size);
 #define mem_clib_malloc(x) wl80211_platform_malloc_wram(x)
 #endif
 
 #ifndef mem_clib_calloc
+/**
+ * @brief Allocate memory from the SDK Wi-Fi RAM pool.
+ */
 void *wl80211_platform_malloc_wram(size_t size);
+/**
+ * @brief Allocate zero-filled lwIP memory from the selected platform allocator.
+ */
 static inline void *_lwip_calloc(size_t count, size_t size)
 {
     void *ptr = wl80211_platform_malloc_wram(count * size);

@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""用 GNU ld map 文件检查底层包的链接结果。
+"""Check dependency linking from GNU ld maps. Commands: members <map> lists non-debug
 
-  check_link.py members <map>                   列出贡献了非调试段内容的归档成员
-  check_link.py absent <manifest> <组> <map>     map 中不得有该链接组归档的成员
-  check_link.py parity <manifest> <参考 map> <map>
-                                                参考 map 中有内容的包内归档成员，map 中也必须有
-
-参考 map 来自 SDK 原生的 --whole-archive 链接。parity 只比较包内归档：工具链库中同一函数可能
-在多个库里各有一份（如 nan 同在 libc_nano 和 libm_nano），取哪一份只随加载顺序变化。
-libforce_<组>.a 的成员名是“原归档名@原成员名”，比较前还原为原归档成员。不依赖 ld 输出语言：内存映射部分从第一行 LOAD 开始。
+archive contributors; absent <manifest> <group> <map> rejects a link group; parity
+<manifest> <reference-map> <map> requires every contributing package member from the SDK
+whole-archive reference. Compare package archives only: duplicate toolchain functions
+such as nan may resolve by load order. Restore libforce member names from original-
+archive@member. Parse from the first LOAD line without relying on linker language.
 """
 
 import fnmatch
@@ -23,7 +20,10 @@ NAME_LINE = re.compile(r"^ (\S+)$")
 
 
 def map_members(text):
-    """返回 {(归档名, 成员名)}：在内存映射部分贡献了非零、非调试输入段的成员。"""
+    """Return archive/member pairs contributing nonzero, non-debug input sections to the
+
+    memory map.
+    """
     start = text.find("\nLOAD ")
     if start < 0:
         raise ValueError("not a GNU ld map file: no LOAD line")
@@ -32,7 +32,7 @@ def map_members(text):
     for line in text[start:].splitlines():
         m = NAME_LINE.match(line)
         if m:
-            section = m.group(1)  # 段名过长时，地址和大小在下一行
+            section = m.group(1)  # For long section names, address and size appear on the following line.
             continue
         m = INPUT_LINE.match(line)
         name, section = (m.group(1) or section, None) if m else (None, None)
@@ -46,11 +46,13 @@ def map_members(text):
 
 
 def read_members(path):
+    """Read the expected archive-member set used by link verification."""
     with open(path, errors="replace") as f:
         return map_members(f.read())
 
 
 def main(argv):
+    """Parse options and run the check link validation or packaging command."""
     if len(argv) == 2 and argv[0] == "members":
         for archive, member in sorted(read_members(argv[1])):
             print("%s(%s)" % (archive, member))
