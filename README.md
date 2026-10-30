@@ -43,7 +43,7 @@ tools/install_check.sh ../arduino-bl \
 | --- | --- | --- |
 | `lhal-usb-ep0-stall-cx-done.patch` | USB 设备驱动 stall EP0 时在同一次寄存器写中置 `USB_CX_STL` 与 `USB_CX_DONE`；否则 OUT 控制请求被拒后 EP0 不再响应，直到总线复位 | Gerrit lhal 11805 |
 
-## profile
+## 构建配置（profile）
 
 `profiles/<chip>/<profile>/` 是一个 SDK 工程：
 
@@ -87,34 +87,31 @@ tools/install_check.sh ../arduino-bl \
 
 本地共享入口：[底层包约定](../docs/development/dependency-release.md)、[开发规范](../AGENTS.md)、[待决事项](../docs/project/open-decisions.md)。
 
-## Program Flash storage (ARDUINO-46)
+## 程序 Flash 存储（ARDUINO-46）
 
-The default profile exports only the pinned SDK littlefs 2.11 engine (disk 2.1),
-without SDK autoformat, KV or libc/VFS adapters. `LICENSE.littlefs` and the
-engine/layout identity are in the package manifest. Sketches consume this
-archive normally; no SDK build is invoked by the Arduino platform.
+默认 profile 只导出固定 SDK 中的 littlefs 2.11 引擎（磁盘格式 2.1），
+不包含 SDK 自动格式化、KV 或 libc/VFS 适配器。
+`LICENSE.littlefs` 和引擎／布局身份记录在包 manifest 中。
+sketch 正常消费该归档，Arduino 平台不会调用 SDK 构建。
 
-`partition_cfg_4M_lfs_v1.toml` reserves `[0x310000,0x378000)` (416 KiB) for
-littlefs. FW0 `[0x10000,0x190000)` and FW1 `[0x190000,0x310000)` are each
-1.5 MiB. The `mfg` entry retains its name and aliases FW1 (factory-test firmware
-before shipping, OTA B afterward). media and parameter/factory addresses are
-unchanged. The physical filesystem partition name is `lfs` (the vendor image
-tool rejects names longer than seven ASCII characters). Runtime geometry is
-read from the active partition table, not a fixed-address header. The SDK
-`CONFIG_BFLB_MTD` component also owns `bflb_boot2.c`, so it is enabled for
-partition parsing; filesystem I/O calls Flash directly and does not use its
-MTD read/write wrappers.
-The ROM linker length excludes the 4 KiB firmware header and 6 KiB ROM header;
-oversized firmware fails linking before upload. Ordinary uploads use section
-erase and contain no filesystem image. Layout changes and old-layout firmware
-uploads require an explicit offline backup/migration; automatic migration and
-silent formatting are not provided. Runtime APIs and acceptance boundaries are
-documented in the platform's `libraries/LittleFS/README.md`.
+`partition_cfg_4M_lfs_v1.toml` 为 littlefs 预留 `[0x310000,0x378000)`，共 416 KiB。
+FW0 `[0x10000,0x190000)` 与 FW1 `[0x190000,0x310000)` 各为 1.5 MiB。
+`mfg` 保留原命名，与 FW1 地址和大小相同：出厂前用于产测固件，出厂后作为 OTA B 分区。
+media、参数区和 factory 地址保持不变。
+文件系统的物理分区名为 `lfs`，厂家镜像工具会拒绝超过 7 个 ASCII 字符的分区名。
+运行时从当前分区表读取几何信息，不依赖固定地址头文件。
+SDK 的 `CONFIG_BFLB_MTD` 组件也管理 `bflb_boot2.c`，因此启用它来解析分区；
+文件系统 I/O 直接调用 Flash，不经过 MTD 读写封装。
 
+ROM 链接长度扣除了 4 KiB 固件头和 6 KiB ROM 头，超限固件在上传前即链接失败。
+普通上传按区段擦除，不含文件系统镜像。
+布局变更或上传旧布局固件前，需要显式离线备份和迁移；
+不提供自动迁移或静默格式化。
+运行时 API 和验收边界见平台的 `libraries/LittleFS/README.md`。
 
-`bl-flash-tools 0.2.0` includes standalone `bl-layout` for the Arduino prebuild,
-post-process, advanced size, upload and export recipes. Maintainers freeze it
-with Python 3.9.17 and `tools/layout-tool-requirements.txt`:
+`bl-flash-tools 0.2.0` 包含独立的 `bl-layout`，
+用于 Arduino 的 prebuild、后处理、advanced size、上传和导出配方。
+维护者使用 Python 3.9.17 和 `tools/layout-tool-requirements.txt` 固定其构建环境：
 
 ```sh
 # Maintenance host only; ordinary Arduino users need neither Python nor SDK.
@@ -126,15 +123,14 @@ python3 tools/export_flash_tools.py --sdk work/bouffalo_sdk --sources sources.js
 python3 tools/test_bl_layout.py
 ```
 
-The executable includes its interpreter/parser; runtime licenses are exported.
-The tool stores the selected TOML and its hash, derives a per-build ROM limit,
-checks post-processed image size and binds image/PT hashes before upload. A
-fresh `partition.bin` is required; a vendor tool that exits zero without
-creating it cannot silently reuse an older table. Arduino CLI export sidecars
-and the `bl-flash/` bundle preserve layout identity for standalone uploads.
-The FlashCommand runtime copy is writable under the build directory, keeping
-the installed tools unchanged. See the platform LittleFS README for customer
-Default/Custom/explicit-path usage and layout migration limits.
+可执行文件内置解释器和解析器，运行时许可随包导出。
+工具保存选定的 TOML 及其哈希，为每次构建推导 ROM 容量限制，
+检查后处理后的镜像大小，并在上传前绑定镜像／分区表哈希。
+必须生成新的 `partition.bin`；厂家工具即使返回零，
+只要没有生成新表，也不能静默复用旧表。
+Arduino CLI 导出的配套文件和 `bl-flash/` 交付包为独立上传保留布局身份。
+FlashCommand 的运行副本位于可写的构建目录，安装的工具保持不变。
+用户的 Default/Custom/显式路径用法及布局迁移限制见平台 LittleFS README。
 
 ## 0.7.0 网络配置
 
