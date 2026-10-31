@@ -1,0 +1,26 @@
+name: source-ci
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run source CI
+        run: tools/ci/run_source_ci.sh
+      - name: Upload source lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-lock
+          path: work/ci-artifacts/source-lock.json

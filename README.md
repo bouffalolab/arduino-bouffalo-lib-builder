@@ -149,3 +149,9 @@ Arduino sketches still consume only prebuilt packages, without SDK builds or ins
 The profile enables `LWIP_IGMP=1` and fully rebuilds/exports the package. Pinned wl80211 creates STA/AP netifs with IGMP flags; joining through either interface consumes an entry on each. Initial hardware tests reproduced exhaustion of the default 8-entry IGMP pool on the 4th distinct group. With the existing 8 netconns, `MEMP_NUM_IGMP_GROUP = 2 * MEMP_NUM_NETCONN + 2` now provides 18 entries, including two all-hosts entries. Socket limits, stack scheduling, partitions, and TLS policy are unchanged. Membership registration and automatic leave on close retain the SDK implementation.
 
 Ordinary Arduino builds consume matching prebuilt libraries and configuration headers without compiling the SDK. See ARDUINO-50 for real RA WiFiS3/vela multicast, join/leave cycles, broadcast, and UDP/TCP/TLS resource recovery. Software/fake, build, and installation checks are auxiliary evidence only.
+
+## Source CI
+
+`tools/ci/check_sources.py` validates the SDK commit, every SDK patch SHA-256, and the Xuantie toolchain URL/SHA-256 without following a floating branch. `tools/ci/run_source_ci.sh` runs this lock check, builder unit tests, layout tests, shell syntax checks, and source checks for sibling platform/bridge trees when they are present. The three repositories include read-only workflow definitions under `.github/workflows/source-ci.yml`.
+
+These checks produce source evidence only. They do not build or flash a BL616CL image, run a phone or radio test, or approve a release. A remote workflow run, a candidate hardware result, and the controlled release flow remain separate gates.
