@@ -155,3 +155,30 @@ Ordinary Arduino builds consume matching prebuilt libraries and configuration he
 `tools/ci/check_sources.py` validates the SDK commit, every SDK patch SHA-256, and the Xuantie toolchain URL/SHA-256 without following a floating branch. `tools/ci/run_source_ci.sh` runs this lock check, builder unit tests, layout tests, shell syntax checks, and source checks for sibling platform/bridge trees when they are present. The three repositories include read-only workflow definitions under `.github/workflows/source-ci.yml`.
 
 These checks produce source evidence only. They do not build or flash a BL616CL image, run a phone or radio test, or approve a release. A remote workflow run, a candidate hardware result, and the controlled release flow remain separate gates.
+
+
+## Continuous integration
+
+The three public GitHub repositories use `master` for the current source line.
+The platform repository also retains its existing `main` and `dev_uno_r4` branches.
+Pushes to `master`, pull requests, and manual dispatch run firmware CI on a GitHub-hosted
+Ubuntu 22.04 runner. Platform and bridge workflows call the builder workflow at an
+explicit commit; the changed repository uses the event commit, and companion inputs
+are fixed commit SHAs in the workflow. Change those pins deliberately when updating a
+validated combination. Ordinary sketches continue to consume exported packages.
+
+The shared build uses Python 3.9.17, Arduino CLI 1.5.1, the SDK/toolchain identities in
+`sources.json`, and the `bl616cl/default` profile. It exports dependency packages and
+compiles Blink, SerialEcho, WiFiScan, ControllerUSB, LittleFS Persistence, Preferences
+Counter, and the complete UNOR4USBBridgeBL sketch. Image checks run after compilation.
+The separate source workflow runs host checks; they do not establish hardware support.
+
+The initial CI intentionally performs fresh builds, without a dependency cache or
+hardware callback. A failed command fails the job. Logs, source identities, manifests,
+and completed images are retained as Actions build evidence for 14 days, including
+partial evidence on failure. They are not stable releases or Arduino package indexes.
+Run the same build locally in clean checkouts with the documented Python requirements
+and `tools/ci/build_firmware.sh <platform-checkout> <bridge-checkout>`; use a fresh
+`BL_BUILDER_WORK` directory for each invocation.
+
+See [controlled releases](docs/releasing.md) for the separate isolated promotion and index rollback procedure.
