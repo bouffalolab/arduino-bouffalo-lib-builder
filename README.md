@@ -154,7 +154,7 @@ Ordinary Arduino builds consume matching prebuilt libraries and configuration he
 
 `tools/ci/check_sources.py` validates the SDK commit, every SDK patch SHA-256, and the Xuantie toolchain URL/SHA-256 without following a floating branch. `tools/ci/run_source_ci.sh` runs this lock check, builder unit tests, layout tests, shell syntax checks, and source checks for sibling platform/bridge trees when they are present. The three repositories include read-only workflow definitions under `.github/workflows/source-ci.yml`.
 
-These checks produce source evidence only. They do not build or flash a BL616CL image, run a phone or radio test, or approve a release. A remote workflow run, a candidate hardware result, and the controlled release flow remain separate gates.
+These checks produce source evidence only. They do not build or flash a BL616CL image, run a phone or radio test, or approve a release. Firmware compilation and controlled release are separate workflows. The initial CI does not require a new hardware callback; prior functional acceptance remains bound to its recorded firmware.
 
 
 ## Continuous integration

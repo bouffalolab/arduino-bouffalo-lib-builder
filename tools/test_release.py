@@ -126,6 +126,15 @@ class ReleaseTests(unittest.TestCase):
             release.restore(snapshot, self.target)
         self.assertEqual(initial, release.digest(self.target / release.INDEX))
 
+    def test_stable_channel_requires_final_release_approval(self):
+        """Completed technical gates cannot substitute for final owner approval."""
+        approval = release.load(self.approval)
+        approval["channel"] = "stable"
+        release.save(self.approval, approval)
+        with self.assertRaisesRegex(ValueError, "ARDUINO-56"):
+            self.promote()
+        self.assertFalse((self.target / release.INDEX).exists())
+
 
 if __name__ == "__main__":
     unittest.main()
