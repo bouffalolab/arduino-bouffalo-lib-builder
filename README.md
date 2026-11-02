@@ -83,9 +83,9 @@ Patches live in `patches/sdk/` with paths relative to the SDK root (`-p1`). Thei
 - ARDUINO-54 closed the vendor wireless library, toolchain, and tool scope under the user's confirmation that Bouffalo Lab provides licensing. Embedded third-party tools are excluded from further review at the user's request. This scope confirmation is not public release approval; the candidate remains for local review only.
 - Flash tools are available only for Linux x86_64.
 - The package index has been verified locally but has no public URL.
-- Version 0.5.0 has Linux + 1V0 hardware records for BLE HCI/ACL, shutdown/restart, and concurrent Wi-Fi TCP/USB; see the [ARDUINO-43 task](../.tasks/2026-10-26-arduino-43-ble-controller/STATUS.md). ARDUINO-44 subsequently completed 7 official examples and public-address/RAM-key pairing and encryption; 5 examples lack accessories and remain unaccepted. ARDUINO-53 completed the unified candidate regression until 16:00 and BlueZ reconnection using an explicit RA patch. Other platforms, RPA, and key retention across power loss remain unaccepted. Software builds, export, and installation checks do not count as hardware passes.
+- Version 0.5.0 has Linux + 1V0 hardware records for BLE HCI/ACL, shutdown/restart, and concurrent Wi-Fi TCP/USB; see the [ARDUINO-43 task](https://github.com/bouffalolab/arduino-bouffalo/blob/master/docs/SUPPORT.md). ARDUINO-44 subsequently completed 7 official examples and public-address/RAM-key pairing and encryption; 5 examples lack accessories and remain unaccepted. ARDUINO-53 completed the unified candidate regression until 16:00 and BlueZ reconnection using an explicit RA patch. Other platforms, RPA, and key retention across power loss remain unaccepted. Software builds, export, and installation checks do not count as hardware passes.
 
-Local shared references: [Dependency package contract](../docs/development/dependency-release.md), [Development rules](../AGENTS.md), and [Open decisions](../docs/project/open-decisions.md).
+Public references: [Platform installation and scope](https://github.com/bouffalolab/arduino-bouffalo/blob/master/docs/README.md), [dependency source locks](sources.json), and [controlled release procedure](docs/releasing.md).
 
 ## Program Flash storage (ARDUINO-46)
 
