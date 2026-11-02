@@ -1,11 +1,11 @@
 # Controlled releases
 
 The initial CI builds firmware; it does not publish a version. Publishing is a
-separate maintainer action. Source repositories are public GitHub repositories
-under `bouffalolab`. The release tool targets a static HTTP directory, allowing an
-isolated rehearsal before a production download service is selected and enabled.
-No production channel, version tag, or public package index is created by this tool.
-ARDUINO-56 retains final public release approval and the production URL decision.
+separate maintainer action. The selected production channel is GitHub Releases in
+`bouffalolab/arduino-bouffalo`, with `package_bouffalolab_index.json` on `master`.
+The static-directory tool permits an isolated rehearsal, and the GitHub adapter
+prints a read-only plan by default. No production version tag, release asset or
+index is created until ARDUINO-56 approves execution.
 
 Use Linux x86_64 and the validated BL616CL UNO R4 WiFi 1V0 combination. Do not
 advertise other hosts or boards based on a successful build. Firmware CI evidence
@@ -78,12 +78,49 @@ the actual downloads, and only then atomically replaces the index. A failed down
 leaves the current index intact; already copied immutable assets may remain for a
 retry. Repeating the exact promotion is safe. Use one publishing process at a time.
 
-For a production static host, the target directory must be that host's served
-directory and the base URL must resolve to the uploaded files. A GitHub Release or
-object-store API requires a separate host adapter; this initial tool does not claim
-to deploy those services. An unapproved production adapter is outside this rehearsal.
-Public use requires `channel=stable` and an explicit `ARDUINO-56` approval reference,
-in addition to the other gates and the actual user's authorization.
+For a static host, the target directory must be the served directory and its URL
+must resolve to those files. The selected GitHub channel uses the separate adapter
+below. Public use requires `channel=stable` and an explicit `ARDUINO-56` approval
+reference, in addition to the other gates and the actual user's authorization.
+
+## Selected GitHub production channel
+
+Generate a complete plan without any remote writes:
+
+```sh
+python3 tools/release_github.py --candidate /absolute/path/to/candidate
+```
+
+The tag is `v<platform-version>`, targeting the exact approved platform commit.
+Assets use the matching GitHub Release download URLs. After actual owner approval,
+use an approval file with `channel=stable`, the `ARDUINO-56` evidence reference and
+`approved_by` as `Name <email>` for the index commit's Signed-off-by trailer:
+
+```sh
+python3 tools/release_github.py --candidate /absolute/path/to/candidate \
+  --approval /absolute/path/to/stable-approval.json --execute
+```
+
+The adapter reads the current master index, rejects changed versions, creates a
+draft against the approved source commit, uploads missing archives, verifies any
+existing assets instead of overwriting them, publishes the release, GETs all indexed
+assets and checks their hashes, then commits the merged index to master. A failed
+asset or HTTP check leaves the previous index unchanged. A draft or published release
+may remain and can be retried; published assets are never silently overwritten.
+Use the maintainers' existing `gh` and Git credentials; CI has no publishing token.
+Actual GitHub publication is deliberately not exercised before ARDUINO-56.
+
+The stable Boards Manager URL, once the first approved index exists, is:
+
+```text
+https://raw.githubusercontent.com/bouffalolab/arduino-bouffalo/master/package_bouffalolab_index.json
+```
+
+For production rollback, retrieve the previous index from Git history, verify every
+retained download with `release.verify_downloads`, and commit its exact contents to
+master with a reviewed rollback message. Then explicitly reinstall the old version.
+Do not delete releases or move tags. An index rollback is distinct from a data-compatible
+device firmware downgrade. This is a maintainer procedure, not an automatic device OTA.
 
 ## Install and recover
 

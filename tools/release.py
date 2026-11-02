@@ -101,7 +101,13 @@ def merge(previous, incoming):
                 if match is None:
                     old[kind].append(copy.deepcopy(entry))
                 elif match != entry:
-                    raise ValueError("existing version is immutable: " + str(tuple(entry[k] for k in keys)))
+                    identities = [copy.deepcopy(e) for e in (match, entry)]
+                    for identity in identities:
+                        for download in identity.get("systems", [identity]):
+                            download.pop("url", None)
+                    if identities[0] != identities[1]:
+                        raise ValueError("existing version is immutable: " + str(tuple(entry[k] for k in keys)))
+                    # Unchanged tools keep their original release URL across platform versions.
     for package in result["packages"]:
         for platform in package["platforms"]:
             for dependency in platform["toolsDependencies"]:
@@ -129,9 +135,9 @@ def replace_index(target, index):
     return digest(current)
 
 
-def promote(candidate, approval_path, target, base_url):
-    """Verify approval and candidate, expose immutable assets, then publish the index."""
-    candidate, target = Path(candidate), Path(target)
+def verify_candidate(candidate, approval_path, base_url):
+    """Bind the candidate to approval and validate the exact files before any writes."""
+    candidate = Path(candidate)
     approval = load(approval_path)
     if approval.get("candidate_sha256") != digest(candidate / "candidate.json"):
         raise ValueError("approval does not identify this candidate")
@@ -148,6 +154,12 @@ def promote(candidate, approval_path, target, base_url):
         path = candidate / name
         if digest(path) != identity["sha256"] or path.stat().st_size != identity["size"]:
             raise ValueError("frozen candidate changed: " + name)
+
+
+def promote(candidate, approval_path, target, base_url):
+    """Verify approval and candidate, expose immutable assets, then publish the index."""
+    candidate, target = Path(candidate), Path(target)
+    verify_candidate(candidate, approval_path, base_url)
     incoming = load(candidate / INDEX)
     for entry in archives(incoming):
         entry["url"] = base_url.rstrip("/") + "/" + entry["archiveFileName"]

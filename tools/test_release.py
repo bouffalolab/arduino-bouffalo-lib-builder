@@ -12,8 +12,8 @@ from unittest.mock import patch
 import release
 
 
-class ReleaseTests(unittest.TestCase):
-    """Check approval, asset ordering, immutable versions and index recovery."""
+class ReleaseFixture(unittest.TestCase):
+    """Supply fixture archives and a real loopback server for host checks."""
 
     def setUp(self):
         """Create isolated fixture inputs and serve the target over real HTTP."""
@@ -55,6 +55,10 @@ class ReleaseTests(unittest.TestCase):
     def promote(self):
         """Execute the real promotion code against the loopback target."""
         return release.promote(self.candidate, self.approval, self.target, self.url)
+
+
+class ReleaseTests(ReleaseFixture):
+    """Check approval, asset ordering, immutable versions and index recovery."""
 
     def test_positive_repeat_upgrade_restore(self):
         """Repetition stays identical; adding a version retains the old install entry."""
@@ -134,6 +138,19 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "ARDUINO-56"):
             self.promote()
         self.assertFalse((self.target / release.INDEX).exists())
+
+    def test_unchanged_tool_retains_original_release_url(self):
+        """A new platform release must reuse immutable tool versions from old tags."""
+        index = release.load(self.candidate / release.INDEX)
+        tool = {"name": "fixed-tool", "version": "1.0.0", "systems": [{
+            "host": "x86_64-linux-gnu", "url": "https://example.com/v0.1.0/tool.tar.gz",
+            "checksum": "SHA-256:" + "1" * 64, "size": "1", "archiveFileName": "tool.tar.gz"}]}
+        index["packages"][0]["tools"].append(tool)
+        incoming = release.load(self.candidate / release.INDEX)
+        incoming["packages"][0]["tools"].append(release.copy.deepcopy(tool))
+        incoming["packages"][0]["tools"][0]["systems"][0]["url"] = "https://example.com/v0.2.0/tool.tar.gz"
+        merged = release.merge(index, incoming)
+        self.assertEqual(tool, merged["packages"][0]["tools"][0])
 
 
 if __name__ == "__main__":
