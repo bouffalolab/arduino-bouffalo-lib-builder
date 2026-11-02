@@ -1,0 +1,61 @@
+name: firmware-ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      builder-ref:
+        type: string
+        required: true
+      platform-ref:
+        type: string
+        required: true
+      bridge-ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bouffalolab/arduino-bouffalo-lib-builder
+          ref: ${{ inputs.builder-ref || github.sha }}
+          path: builder
+      - uses: actions/checkout@v4
+        with:
+          repository: bouffalolab/arduino-bouffalo
+          ref: ${{ inputs.platform-ref || 'd6f39e54ac92037d82b408b59c327f47f8791a82' }}
+          path: platform
+      - uses: actions/checkout@v4
+        with:
+          repository: bouffalolab/arduino-bouffalo-uno-r4-wifi-usb-bridge
+          ref: ${{ inputs.bridge-ref || 'a0aae5021b7e3d4b563d2fdfaabc8e3427b51c27' }}
+          path: bridge
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9.17'
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: '1.5.1'
+      - name: Install maintainer build requirements
+        run: python3 -m pip install pyinstaller==6.15.0 tomli==2.2.1 cryptography==44.0.3
+      - name: Build dependency packages and Arduino firmware
+        run: builder/tools/ci/build_firmware.sh platform bridge
+      - name: Preserve build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            builder/work/ci-artifacts/
+            builder/work/build/*.log
+          retention-days: 14
