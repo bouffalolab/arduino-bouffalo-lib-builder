@@ -1,0 +1,90 @@
+name: sdk-sync
+
+# Daily check for a bouffalo_sdk release (vX.Y.Z) newer than sources.json sdk.ref. When one exists:
+# push branch sdk-sync/<tag> with only sdk.ref changed, build it with firmware-ci against platform
+# and bridge master, and open a pull request (draft if the build failed). Nothing is published;
+# version bumps, patch updates and hardware acceptance stay with the maintainer.
+# Requires the repository setting "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-sync
+
+jobs:
+  propose:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.check.outputs.latest }}
+      branch: ${{ steps.push.outputs.branch }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find a newer SDK release
+        id: check
+        run: python3 tools/sdk_sync.py check --sources sources.json --repo-url https://github.com/bouffalolab/bouffalo_sdk.git >>"$GITHUB_OUTPUT"
+      - name: Push the sync branch
+        id: push
+        if: steps.check.outputs.update == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.latest }}
+        run: |
+          branch="sdk-sync/$TAG"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch already exists; nothing to do"
+            exit 0
+          fi
+          python3 tools/sdk_sync.py set --sources sources.json --ref "$TAG"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git commit -qm "chore(sdk): sync bouffalo_sdk $TAG" -- sources.json
+          git push origin "$branch"
+          echo "branch=$branch" >>"$GITHUB_OUTPUT"
+
+  build:
+    needs: propose
+    if: needs.propose.outputs.branch != ''
+    uses: ./.github/workflows/firmware-ci.yml
+    with:
+      builder-ref: ${{ needs.propose.outputs.branch }}
+      platform-ref: master
+      bridge-ref: master
+
+  pull-request:
+    needs: [propose, build]
+    if: always() && needs.propose.outputs.branch != ''
+    runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.propose.outputs.tag }}
+          BRANCH: ${{ needs.propose.outputs.branch }}
+          RESULT: ${{ needs.build.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          draft=()
+          [ "$RESULT" = success ] || draft=(--draft)
+          cat >body.md <<EOF
+          Automated update of \`sources.json\` sdk.ref to bouffalo_sdk \`$TAG\`.
+
+          firmware-ci build against platform and bridge master: **$RESULT** ($RUN_URL).
+          A failed build usually means an SDK patch no longer applies or upstream changed an interface.
+
+          Before merging:
+          - [ ] Drop patches the release already contains; refresh the rest.
+          - [ ] Bump the \`bl616cl-libs\` (and, if its files change, \`bl-flash-tools\`) version in \`tools/ci/build_firmware.sh\`.
+          - [ ] Run the hardware acceptance; a CI build is not acceptance.
+          EOF
+          gh pr create -R "$GITHUB_REPOSITORY" --base master --head "$BRANCH" \
+            --title "chore(sdk): sync bouffalo_sdk $TAG" --body-file body.md "${draft[@]}"

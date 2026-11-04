@@ -62,9 +62,11 @@ export BL_BUILDER_WORK="/absolute/path/to/builder-work"
 
 The selected profile's generated build directory is recreated on each build. Keep source changes in `profiles/` or versioned patches rather than generated SDK/build trees.
 
-### SDK release and toolchain pins
+### SDK release, automatic sync and toolchain pins
 
 `sources.json` names the SDK by `sdk.ref`, normally a bouffalo_sdk release tag such as `v2.3.38`; a branch name also works for development. `build.sh` fetches the ref on every run and checks out the commit it names. The prepared SDK tree and both package manifests record that commit, so each package identifies its exact source although `sources.json` does not.
+
+The `sdk-sync` workflow runs daily and on demand. When bouffalo_sdk publishes a release tag newer than `sdk.ref`, it pushes `sdk-sync/<tag>` with only `sdk.ref` changed, builds that branch with firmware-ci against platform and bridge master, and opens a pull request, as a draft when the build fails. It never publishes. Before merging, drop patches that the release already contains, bump the package versions, and run the hardware acceptance. The workflow needs the repository setting "Allow GitHub Actions to create and approve pull requests". It leaves a branch `sdk.ref` unchanged.
 
 The toolchain stays pinned by URL and SHA-256. The `default` release of bouffalolab/toolchain is a moving channel (its Linux archive was replaced on 2026-11-04), so a replaced archive fails the checksum instead of silently changing the compiler. Update `toolchain.sha256` and `toolchain.dir` deliberately after checking the new archive.
 
