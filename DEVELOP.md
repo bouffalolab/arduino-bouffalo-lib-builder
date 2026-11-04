@@ -37,7 +37,7 @@ python3 --version
 python3 -m pip install -r tools/layout-tool-requirements.txt cryptography==44.0.3
 ```
 
-Verify that `python3 --version` prints 3.9.17 before freezing the layout tool. The builder downloads the Xuantie toolchain pinned in `sources.json`; a separately installed RISC-V compiler is not a substitute.
+Verify that `python3 --version` prints 3.9.17 before freezing the layout tool. The builder downloads the GCC RISC-V 14.3.0 toolchain pinned in `sources.json`; a separately installed RISC-V compiler is not a substitute.
 
 For a release or reproduction, use the exact three commit SHAs selected by the candidate or workflow. The latest master tips are a development starting point, not an automatically validated combination.
 

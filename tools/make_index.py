@@ -23,7 +23,7 @@ from export_package import sha256_file  # noqa: E402
 HOST = "x86_64-linux-gnu"
 PACKAGER = "bouffalolab"
 ARCH = "bl"
-TOOLCHAIN_NAME = "xuantie-gcc-riscv"
+TOOLCHAIN_NAME = "gcc-riscv"
 
 
 def parse_properties(text):

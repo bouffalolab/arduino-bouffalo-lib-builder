@@ -58,8 +58,8 @@ WEAK_TYPES = set("WV")
 LOCAL_TYPES = set("tdbrsg")
 NM_LINE = re.compile(r"^.*\[(?P<member>[^\]]+)\]: (?P<sym>\S+) (?P<type>\S)")
 
-# Libraries implicitly linked by GCC with nano.specs; SDK components override some symbols.
-NANO_TOOLCHAIN_LIBS = ("libc_nano.a", "libm_nano.a", "libgloss_nano.a", "libgcc.a")
+# Toolchain libraries in the picolibc.specs link; SDK components override some symbols.
+TOOLCHAIN_LIBS = ("libc.a", "libm.a", "libstdc++.a", "libgcc.a")
 
 # Link-command options excluded from ld_flags.
 LD_DROP_PREFIXES = ("-T", "-Wl,-Map=", "-L", "-l")
@@ -275,10 +275,13 @@ def forced_members(package, toolchain, groups):
 
     map archive names to parsed symbols and groups to archive globs. Force strong
     definitions also defined elsewhere, preventing toolchain libc/weak fallbacks from
-    satisfying them first (for example SDK TLSF _malloc_r). Also force local-only
-    members retained by linker KEEP, such as version metadata, but not empty disabled
-    objects. Assign members by archive group or exclusive unresolved-symbol dependency;
-    otherwise use base. Return group -> (archive, member, reason) entries.
+    satisfying them first (for example SDK TLSF malloc). Force members defining OS hooks
+    that toolchain libraries reference but do not define (picolibc gettimeofday, stdout):
+    g++ moves -lc after the package group, so such references arrive too late to pull
+    them. Also force local-only members retained by linker KEEP, such as version
+    metadata, but not empty disabled objects. Assign members by archive group or
+    exclusive unresolved-symbol dependency; otherwise use base. Return group ->
+    (archive, member, reason) entries.
     """
     providers = defaultdict(set)
     for libs in (package, toolchain):
@@ -286,6 +289,8 @@ def forced_members(package, toolchain, groups):
             for member, syms in table.items():
                 for s in syms["strong"] | syms["weak"]:
                     providers[s].add((lib, member))
+    toolchain_undef = set().union(*(syms["undef"] for table in toolchain.values() for syms in table.values()))
+    hooks = {s for s in toolchain_undef if not any(l in toolchain for l, _ in providers[s])}
 
     def group_of(lib):
         """Select the optional link group associated with an archive."""
@@ -298,6 +303,8 @@ def forced_members(package, toolchain, groups):
             if dup:
                 other = sorted(providers[dup[0]] - {(lib, member)})[0]
                 reason = "%s 也由 %s(%s) 定义" % (dup[0], other[0], other[1])
+            elif (syms["strong"] | syms["weak"]) & hooks:
+                reason = "%s 由工具链库引用但未定义" % sorted((syms["strong"] | syms["weak"]) & hooks)[0]
             elif not syms["strong"] and not syms["weak"] and syms["local"]:
                 reason = "只有局部定义"
             else:
@@ -330,11 +337,11 @@ def write_forced_archive(tools, archives, entries, dest):
 
 def toolchain_libs(gcc, ld_flags):
     """Return GCC implicit library paths selected by the ld_flags multilib options."""
-    if "--specs=nano.specs" not in ld_flags:
-        raise ValueError("only --specs=nano.specs links are supported")
+    if "--specs=picolibc.specs" not in ld_flags:
+        raise ValueError("only --specs=picolibc.specs links are supported")
     multilib = [f for f in ld_flags if f.startswith(("-march=", "-mabi="))]
     libs = {}
-    for name in NANO_TOOLCHAIN_LIBS:
+    for name in TOOLCHAIN_LIBS:
         path = subprocess.run([gcc] + multilib + ["-print-file-name=" + name],
                               capture_output=True, text=True, check=True).stdout.strip()
         if not os.path.isabs(path) or not os.path.isfile(path):

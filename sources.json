@@ -19,14 +19,18 @@
       {
         "file": "patches/sdk/newlib-mtimer-wall-clock.patch",
         "sha256": "1c7109516b96231a7fd4d79ae42ab1a8601698dd6ca1e62d17660e18311b7d86"
+      },
+      {
+        "file": "patches/sdk/bl616cl-gcc14-picolibc.patch",
+        "sha256": "a4213ec0f2871254be5e87443058b07322ba11d4821a0291d028a1329cbd40b7"
       }
     ]
   },
   "toolchain": {
-    "name": "Xuantie-900 GCC 10.2.0 V2.6.1 B-20220906",
-    "version": "2.6.1",
-    "url": "https://github.com/bouffalolab/toolchain/releases/download/default/xuantie-gcc-riscv-v2.6.1-linux-x86_64.tar.xz",
-    "sha256": "83817bd7cab693fc249bb98869de5e475c1ede577f4a188869fed96c8dbb8e1a",
-    "dir": "xuantie-gcc-riscv-v2.6.1-linux-x86_64"
+    "name": "GCC RISC-V 14.3.0",
+    "version": "14.3.0",
+    "url": "https://github.com/bouffalolab/toolchain/releases/download/default/gcc-riscv-14.3.0-linux-x86_64.tar.xz",
+    "sha256": "29c01b7fd5a40b15e1816bc34400d110afa0e2290d2e543cfb6aee2ba414060b",
+    "dir": "riscv64-unknown-elf-gthread"
   }
 }

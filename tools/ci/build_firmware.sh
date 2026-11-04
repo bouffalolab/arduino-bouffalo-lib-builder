@@ -26,7 +26,7 @@ python3 -I "$ROOT/tools/export_package.py" \
     --build "$WORK/build/bl616cl-default" --build-log "$WORK/build/bl616cl-default.log" \
     --sdk "$WORK/bouffalo_sdk" --sdk-tree "$WORK/build/bl616cl-default.sdk" \
     --sources "$ROOT/sources.json" --toolchain-bin "$TC/bin" \
-    --profile bl616cl/default --version 0.9.0 --out "$WORK/out/bl616cl-libs"
+    --profile bl616cl/default --version 0.10.0 --out "$WORK/out/bl616cl-libs"
 "$ROOT/tools/build_layout_tool.sh" "$WORK/layout-tool" >"$OUT/layout-tool.log" 2>&1
 python3 -I "$ROOT/tools/export_flash_tools.py" \
     --sdk "$WORK/bouffalo_sdk" --sources "$ROOT/sources.json" --chip bl616cl \
@@ -55,7 +55,7 @@ for sketch in \
     echo "Building $name"
     "${CLI[@]}" compile -b bouffalolab:bl:unor4wifi_bl616cl \
         --build-property "runtime.tools.bl616cl-libs.path=$WORK/out/bl616cl-libs" \
-        --build-property "runtime.tools.xuantie-gcc-riscv.path=$TC" \
+        --build-property "runtime.tools.gcc-riscv.path=$TC" \
         --build-property "runtime.tools.bl-flash-tools.path=$WORK/out/bl-flash-tools" \
         --build-path "$WORK/firmware/$name" "$sketch" >"$OUT/$name.log" 2>&1 \
         || { cat "$OUT/$name.log"; exit 1; }

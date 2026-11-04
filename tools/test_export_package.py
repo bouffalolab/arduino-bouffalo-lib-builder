@@ -33,11 +33,11 @@ class CommonArgsTest(unittest.TestCase):
 
     def test_portable_flags_drop_paths_and_language_standard(self):
         """Verify portable flags drop paths and language standard."""
-        args = ["-march=rv32imafc_xtheade", "-fshort-enums", "-std=gnu99", "-c",
+        args = ["-march=rv32imafc_zicsr_zifencei", "-fshort-enums", "-std=gnu99", "-c",
                 "-fmacro-prefix-map=/home/u/sdk=.", "-ffile-prefix-map=/home/u/work=/work",
                 "-o x.obj", "-include /b/autoconfig.h",
                 "-I/sdk/inc", "-DX", "-fstack-usage", "-Os"]
-        self.assertEqual(ep.portable_flags(args), ["-march=rv32imafc_xtheade", "-fshort-enums", "-Os"])
+        self.assertEqual(ep.portable_flags(args), ["-march=rv32imafc_zicsr_zifencei", "-fshort-enums", "-Os"])
 
 
 class PortableFlagsTest(unittest.TestCase):
@@ -133,14 +133,14 @@ class RspQuoteTest(unittest.TestCase):
 
     def test_plain_flag_unchanged(self):
         """Verify plain flag unchanged."""
-        self.assertEqual(ep.rsp_quote("-march=rv32imafc_xtheade"), "-march=rv32imafc_xtheade")
+        self.assertEqual(ep.rsp_quote("-march=rv32imafc_zicsr_zifencei"), "-march=rv32imafc_zicsr_zifencei")
 
 
 class ParseLinkTest(unittest.TestCase):
     LINK = ("riscv64-unknown-elf-gcc -T/b/generated/linker.ld -Wl,-Map=/b/x.map -Wl,--cref "
             "-Wl,--gc-sections -nostartfiles -Wl,--print-memory-usage -Wl,--no-relax "
-            "--specs=nano.specs -ufw_header -Wl,-wrap,snprintf -L/sdk/macsw "
-            "-march=rv32imafc_xtheade CMakeFiles/x.elf.dir/main.c.obj -o build_out/x.elf "
+            "--specs=picolibc.specs -ufw_header -Wl,-wrap,snprintf -L/sdk/macsw "
+            "-march=rv32imafc_zicsr_zifencei CMakeFiles/x.elf.dir/main.c.obj -o build_out/x.elf "
             "-Wl,--whole-archive /sdk/phyrf/libphy.a build_out/lib/libapp.a "
             "-Wl,--no-whole-archive -lc -lm")
 
@@ -149,8 +149,8 @@ class ParseLinkTest(unittest.TestCase):
         archives, ld_flags, libs, dirs = ep.parse_link(self.LINK, "/b")
         self.assertEqual(archives, ["/sdk/phyrf/libphy.a", "/b/build_out/lib/libapp.a"])
         self.assertEqual(ld_flags, ["-Wl,--gc-sections", "-nostartfiles", "-Wl,--no-relax",
-                                    "--specs=nano.specs", "-ufw_header", "-Wl,-wrap,snprintf",
-                                    "-march=rv32imafc_xtheade"])
+                                    "--specs=picolibc.specs", "-ufw_header", "-Wl,-wrap,snprintf",
+                                    "-march=rv32imafc_zicsr_zifencei"])
         self.assertEqual(libs, ["-lc", "-lm"])
         self.assertEqual(dirs, ["/sdk/macsw"])
 
@@ -224,15 +224,26 @@ class ForcedMembersTest(unittest.TestCase):
     them to avoid silent fallback implementations.
     """
 
-    TOOLCHAIN = {"libc_nano.a": {"lib_a-nano-mallocr.o": syms(["_malloc_r"])}}
+    TOOLCHAIN = {"libc.a": {"nano-malloc.c.o": syms(["malloc"]),
+                            "libc_time_time.c.o": syms(["time"], undef=["gettimeofday"])}}
 
-    def test_libc_port_overrides_newlib_for_every_program(self):
-        """Verify libc port overrides newlib for every program."""
-        package = {"liblibc.a": {"port_memory.c.obj": syms(["_malloc_r"], undef=["kmalloc"]),
+    def test_libc_port_overrides_picolibc_for_every_program(self):
+        """Verify libc port overrides picolibc for every program."""
+        package = {"liblibc.a": {"port_memory.c.obj": syms(["malloc"], undef=["kmalloc"]),
                                  "lib_only.c.obj": syms(["sdk_only_fn"])}}
         forced = ep.forced_members(package, self.TOOLCHAIN, {"wifi": ["libphy.a"]})
         self.assertEqual(forced, {"base": [("liblibc.a", "port_memory.c.obj",
-                                            "_malloc_r 也由 libc_nano.a(lib_a-nano-mallocr.o) 定义")]})
+                                            "malloc 也由 libc.a(nano-malloc.c.o) 定义")]})
+
+    def test_os_hook_for_toolchain_libc_is_forced(self):
+        """g++ moves -lc after the package group, so picolibc time() can only find the SDK
+
+        gettimeofday() if the member providing it is always linked, even as a weak definition.
+        """
+        package = {"liblibc.a": {"port_time.c.obj": syms(["_gettimeofday_r"], weak=["gettimeofday"])}}
+        forced = ep.forced_members(package, self.TOOLCHAIN, {})
+        self.assertEqual(forced, {"base": [("liblibc.a", "port_time.c.obj",
+                                            "gettimeofday 由工具链库引用但未定义")]})
 
     def test_override_needing_wifi_library_goes_to_wifi_group(self):
         """Regulatory tables depend on wireless libraries; placing them in base would pull

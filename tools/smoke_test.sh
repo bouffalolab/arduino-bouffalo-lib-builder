@@ -59,7 +59,7 @@ for prog in rtos wifi; do
         -include "$PKG/include/build/generated/autoconfig.h" -std=gnu99 -c "$prog.c" -o "$prog.o"
     "$GCC" @"$PKG/flags/ld_flags" -T "$PKG/ld/linker.ld" -L "$PKG/ld" -L "$PKG/lib" "$prog.o" \
         -Wl,--start-group "${extra[@]}" @"$PKG/flags/ld_libs" -Wl,--end-group -Wl,-Map="$prog.map" \
-        -Wl,-y,main -Wl,-y,_malloc_r -o "$prog.elf" 2>"$prog.trace"
+        -Wl,-y,main -Wl,-y,malloc -o "$prog.elf" 2>"$prog.trace"
 done
 EOF
 
@@ -76,8 +76,8 @@ CHECK_LINK=(python3 -I "$ROOT/tools/check_link.py")
 
 "$TC_BIN/riscv64-unknown-elf-nm" "$TMP/wifi.elf" >"$TMP/wifi.nm"
 check "rtos: main 由测试程序定义" 'grep -q ": rtos.o: definition of main$" "$TMP/rtos.trace"'
-check "rtos: _malloc_r 来自 SDK libc 移植层" \
-    'grep -q "(liblibc.a@port_memory.c.obj): definition of _malloc_r$" "$TMP/rtos.trace"'
+check "rtos: malloc 来自 SDK libc 移植层" \
+    'grep -q "(liblibc.a@port_memory.c.obj): definition of malloc$" "$TMP/rtos.trace"'
 check "rtos: 未链入 wifi 链接组的归档" '"${CHECK_LINK[@]}" absent "$PKG/manifest.json" wifi "$TMP/rtos.map"'
 check "wifi: 链接闭合并含 wl80211_init" 'grep -q " T wl80211_init$" "$TMP/wifi.nm"'
 check "wifi: SDK 原生链接中有内容的包内成员都已链入" \
