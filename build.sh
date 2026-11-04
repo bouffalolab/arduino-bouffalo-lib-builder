@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build one dependency-package profile.
 # Usage: ./build.sh [<chip>/<profile>], default bl616cl/default.
-# Fetch the sources.json-pinned SDK/toolchain into work/; build under work/build/.
+# Fetch the sources.json SDK ref (release tag or branch) and pinned toolchain into work/; build under work/build/.
 # Do not modify the checkout. prepare_sdk_tree.py creates <build-directory>.sdk for the build.
 # Apply sources.json SDK patches only to that derived tree. BL_BUILDER_WORK relocates work/.
 set -euo pipefail
@@ -19,23 +19,24 @@ SDK_TREE=$BUILD.sdk
 # Read one pinned dependency field from sources.json.
 src() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]][sys.argv[3]])' "$ROOT/sources.json" "$1" "$2"; }
 
-# Fetch and check out the pinned Bouffalo SDK revision in the build cache.
+# Fetch the sources.json SDK ref and check out the commit it currently names. The resolved commit is
+# recorded by prepare_sdk_tree.py and the package manifests.
 fetch_sdk() {
-    local repo commit head
-    repo=$(src sdk repo); commit=$(src sdk commit)
+    local repo ref commit head
+    repo=$(src sdk repo); ref=$(src sdk ref)
     if [ ! -d "$SDK/.git" ]; then
         git init -q "$SDK"
         git -C "$SDK" remote add origin "$repo"
     fi
-    # Shallow-fetch and checkout the pinned commit; sdk.ref records provenance only. Require a clean checkout first.
+    # Shallow-fetch the ref and check out its commit; require a clean checkout before switching.
+    git -C "$SDK" fetch -q --depth 1 origin "$ref"
+    commit=$(git -C "$SDK" rev-parse 'FETCH_HEAD^{commit}')
     head=$(git -C "$SDK" rev-parse -q --verify HEAD || true)
     if [ "$head" != "$commit" ]; then
         [ -z "$(git -C "$SDK" status --porcelain --ignored)" ] || { echo "SDK checkout is not clean: $SDK" >&2; exit 1; }
-        git -C "$SDK" fetch --depth 1 origin "$commit"
         git -C "$SDK" checkout -q --detach "$commit"
     fi
-    head=$(git -C "$SDK" rev-parse HEAD)
-    [ "$head" = "$commit" ] || { echo "SDK HEAD $head != pinned $commit" >&2; exit 1; }
+    echo "SDK $ref -> $commit"
     # Include ignored files: require an empty status before/after builds to detect any writes into the SDK checkout.
     [ -z "$(git -C "$SDK" status --porcelain --ignored)" ] || { echo "SDK checkout is not clean: $SDK" >&2; exit 1; }
 }

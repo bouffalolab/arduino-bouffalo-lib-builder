@@ -1,0 +1,25 @@
+libc: expose the toolchain pthread types to picolibc C++ builds
+
+The SDK's components/libc/sys/types.h shadows the toolchain header and
+skips <sys/_pthreadtypes.h> whenever __PICOLIBC__ is defined. The
+bouffalolab/toolchain GCC 14.3 libstdc++ uses POSIX gthreads, so C++
+standard headers that reach the toolchain <pthread.h> (for example
+<mutex>) fail with "'pthread_mutexattr_t' was not declared". Include the
+toolchain pthread types when the header exists; picolibc builds without
+it keep the old behaviour.
+
+Applies to components/libc/sys/types.h of bouffalo_sdk v2.3.38 (946f92a0).
+Drop this patch when sources.json moves to a release that includes it.
+
+--- a/components/libc/sys/types.h
++++ b/components/libc/sys/types.h
+@@ -221,7 +221,8 @@
+ 
+ #include <sys/features.h>
+ #ifndef CONFIG_POSIX
+-#ifndef __PICOLIBC__
++/* libstdc++ gthreads in GCC 14.3 (picolibc) need the toolchain pthread types. */
++#if !defined(__PICOLIBC__) || __has_include(<sys/_pthreadtypes.h>)
+ #include <sys/_pthreadtypes.h>
+ #endif
+ #endif

@@ -62,6 +62,12 @@ export BL_BUILDER_WORK="/absolute/path/to/builder-work"
 
 The selected profile's generated build directory is recreated on each build. Keep source changes in `profiles/` or versioned patches rather than generated SDK/build trees.
 
+### SDK release and toolchain pins
+
+`sources.json` names the SDK by `sdk.ref`, normally a bouffalo_sdk release tag such as `v2.3.38`; a branch name also works for development. `build.sh` fetches the ref on every run and checks out the commit it names. The prepared SDK tree and both package manifests record that commit, so each package identifies its exact source although `sources.json` does not.
+
+The toolchain stays pinned by URL and SHA-256. The `default` release of bouffalolab/toolchain is a moving channel (its Linux archive was replaced on 2026-11-04), so a replaced archive fails the checksum instead of silently changing the compiler. Update `toolchain.sha256` and `toolchain.dir` deliberately after checking the new archive.
+
 ### Build packages and representative firmware
 
 For the complete path, run from a clean checkout of all three repositories:

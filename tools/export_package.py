@@ -58,7 +58,7 @@ WEAK_TYPES = set("WV")
 LOCAL_TYPES = set("tdbrsg")
 NM_LINE = re.compile(r"^.*\[(?P<member>[^\]]+)\]: (?P<sym>\S+) (?P<type>\S)")
 
-# Toolchain libraries in the picolibc.specs link; SDK components override some symbols.
+# Toolchain libraries in the default picolibc link; SDK components override some symbols.
 TOOLCHAIN_LIBS = ("libc.a", "libm.a", "libstdc++.a", "libgcc.a")
 
 # Link-command options excluded from ld_flags.
@@ -68,6 +68,9 @@ LD_DROP_EXACT = {
     "-Wl,--print-memory-usage",
     "-Wl,--whole-archive",
     "-Wl,--no-whole-archive",
+    # SDK __wrap_main runs __libc_init_array before main; the Arduino Core main runs it
+    # itself after init() and the C++ guard lock, so constructors must not run twice.
+    "-Wl,-wrap,main",
 }
 
 
@@ -235,6 +238,12 @@ def post_proc_files(log_text):
     return {"boot2": m.group(1), "partition": m.group(2), "dts": m.group(3)}
 
 
+def boot_resource_name(key, src):
+    """Package file name for an image resource. boot2 gets a fixed name so boards.txt does not
+    depend on the boot2 version an SDK release ships; the manifest records the source file."""
+    return "boot2.bin" if key == "boot2" else os.path.basename(src)
+
+
 def parse_nm(text, members):
     """Parse nm -A -P output, retaining every ar-listed member even without symbols. Return
 
@@ -337,8 +346,9 @@ def write_forced_archive(tools, archives, entries, dest):
 
 def toolchain_libs(gcc, ld_flags):
     """Return GCC implicit library paths selected by the ld_flags multilib options."""
-    if "--specs=picolibc.specs" not in ld_flags:
-        raise ValueError("only --specs=picolibc.specs links are supported")
+    specs = [f for f in ld_flags if f.startswith("--specs=") and f != "--specs=picolibc.specs"]
+    if specs:
+        raise ValueError("only the toolchain's picolibc link is supported, got " + specs[0])
     multilib = [f for f in ld_flags if f.startswith(("-march=", "-mabi="))]
     libs = {}
     for name in TOOLCHAIN_LIBS:
@@ -395,7 +405,7 @@ def is_previous_export(path):
     return isinstance(manifest, dict) and {"name", "version", "files"} <= manifest.keys()
 
 
-def sdk_tree(tree_arg, sdk, pinned):
+def sdk_tree(tree_arg, sdk, pinned, commit):
     """Return the actual build SDK tree; pinned patches require a tree produced by
 
     prepare_sdk_tree.py.
@@ -405,7 +415,7 @@ def sdk_tree(tree_arg, sdk, pinned):
             raise ValueError("sources.json lists SDK patches; pass --sdk-tree with the patched build tree")
         return sdk
     tree = Path(tree_arg).resolve()
-    check_tree(tree, pinned)
+    check_tree(tree, pinned, commit)
     return tree
 
 
@@ -446,10 +456,11 @@ def write_package(args, out):
     sdk = Path(args.sdk).resolve()
     sources = json.loads(Path(args.sources).read_text())
     sdk_state = git_state(sdk)
-    if sdk_state != {"commit": sources["sdk"]["commit"], "dirty": False}:
-        raise ValueError("SDK checkout %s does not match sources.json: %r" % (sdk, sdk_state))
+    if sdk_state["dirty"]:
+        raise ValueError("SDK checkout %s is dirty" % sdk)
+    commit = sdk_state["commit"]  # The commit sources.json sdk.ref named when build.sh fetched it.
     # Map headers/includes against the actual build SDK tree and verify its recorded patches.
-    tree = sdk_tree(args.sdk_tree, sdk, sources["sdk"])
+    tree = sdk_tree(args.sdk_tree, sdk, sources["sdk"], commit)
     for sub in ("include", "lib", "ld", "boot", "flags"):
         (out / sub).mkdir(parents=True)
 
@@ -554,8 +565,11 @@ def write_package(args, out):
     # Image post-processing resources.
     boot = {}
     for key, src in post_proc_files(Path(args.build_log).read_text(errors="replace")).items():
-        shutil.copy2(src, out / "boot" / os.path.basename(src))
-        boot[key] = "boot/" + os.path.basename(src)
+        name = boot_resource_name(key, src)
+        shutil.copy2(src, out / "boot" / name)
+        boot[key] = "boot/" + name
+        if name != os.path.basename(src):
+            boot[key + "_source"] = os.path.relpath(src, tree)
 
     shutil.copy2(sdk / "LICENSE", out / "LICENSE.bouffalo_sdk")
 
@@ -574,7 +588,7 @@ def write_package(args, out):
         "version": args.version,
         "chip": chip,
         "profile": profile,
-        "sdk": sources["sdk"],
+        "sdk": {**sources["sdk"], "commit": commit},
         "toolchain": sources["toolchain"],
         "builder": git_state(builder),
         "forced_include": forced_rel,
@@ -594,7 +608,7 @@ def write_package(args, out):
     if (out / "lib/libarduino_littlefs.a").exists():
         manifest["littlefs"] = {
             "source_path": "components/fs/littlefs/littlefs",
-            "sdk_commit": sources["sdk"]["commit"],
+            "sdk_commit": commit,
             "version": "2.11", "disk_version": "2.1",
             "archive": "lib/libarduino_littlefs.a",
             "partition": boot["partition"],

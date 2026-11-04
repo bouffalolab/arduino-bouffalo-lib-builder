@@ -51,8 +51,8 @@ def write_tools(args, out):
     sdk = Path(args.sdk).resolve()
     sources = json.loads(Path(args.sources).read_text())
     sdk_state = git_state(sdk)
-    if sdk_state != {"commit": sources["sdk"]["commit"], "dirty": False}:
-        raise ValueError("SDK checkout %s does not match sources.json: %r" % (sdk, sdk_state))
+    if sdk_state["dirty"]:
+        raise ValueError("SDK checkout %s is dirty" % sdk)
 
     tools_dir = sdk / TOOLS_DIR
     for rel in tool_files(tools_dir, args.chip):
@@ -77,7 +77,7 @@ def write_tools(args, out):
         "version": args.version,
         "host": "x86_64-linux-gnu",
         "chips": args.chip,
-        "sdk": sources["sdk"],
+        "sdk": {**sources["sdk"], "commit": sdk_state["commit"]},
         "source_dir": TOOLS_DIR,
         "builder": git_state(Path(__file__).resolve().parent.parent),
         "licenses": {

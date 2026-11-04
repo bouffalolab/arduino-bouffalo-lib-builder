@@ -63,12 +63,12 @@ class PrepareTest(unittest.TestCase):
         """Release this software test's temporary resources."""
         self.tmp.cleanup()
 
-    def write_sources(self, patches=None, commit=None):
-        """Write pinned source and patch metadata for the prepared-tree test fixture."""
+    def write_sources(self, patches=None):
+        """Write source ref and patch metadata for the prepared-tree test fixture."""
         if patches is None:
             patches = [{"file": "patches/usb.patch", "sha256": hashlib.sha256(PATCH.encode()).hexdigest()}]
         sources = self.builder / "sources.json"
-        sources.write_text(json.dumps({"sdk": {"commit": commit or self.commit, "patches": patches}}))
+        sources.write_text(json.dumps({"sdk": {"ref": "v1.0", "patches": patches}}))
         return sources
 
     def prepare(self, **kw):
@@ -93,7 +93,7 @@ class PrepareTest(unittest.TestCase):
         self.assertFalse((self.out / ".git").exists())
 
     def test_marker_records_commit_and_patches(self):
-        """Verify marker records commit and patches."""
+        """sources.json names only a ref; the marker is the record of which commit was built."""
         self.prepare()
         marker = pst.read_marker(self.out)
         self.assertEqual(marker["commit"], self.commit)
@@ -123,10 +123,8 @@ class PrepareTest(unittest.TestCase):
         self.assertFalse(self.out.parent.exists() and any(self.out.parent.iterdir()))
         self.assertEqual(git(self.sdk, "status", "--porcelain", "--ignored"), "")
 
-    def test_dirty_or_unpinned_checkout_rejected(self):
-        """Verify dirty or unpinned checkout rejected."""
-        with self.assertRaises(ValueError):
-            self.prepare(commit="0" * 40)
+    def test_dirty_checkout_rejected(self):
+        """A dirty checkout is not the commit the marker would claim."""
         (self.sdk / "untracked.txt").write_text("x")
         with self.assertRaises(ValueError):
             self.prepare()
@@ -144,13 +142,13 @@ class PrepareTest(unittest.TestCase):
         sources = self.write_sources()
         pst.prepare(self.sdk, sources, self.out)
         pinned = json.loads(sources.read_text())["sdk"]
-        pst.check_tree(self.out, pinned)
+        pst.check_tree(self.out, pinned, self.commit)
         with self.assertRaises(ValueError):
-            pst.check_tree(self.out, {**pinned, "patches": []})
+            pst.check_tree(self.out, {**pinned, "patches": []}, self.commit)
         with self.assertRaises(ValueError):
-            pst.check_tree(self.out, {**pinned, "commit": "0" * 40})
+            pst.check_tree(self.out, pinned, "0" * 40)
         with self.assertRaises(ValueError):
-            pst.check_tree(self.sdk, pinned)
+            pst.check_tree(self.sdk, pinned, self.commit)
 
     def test_patch_targets_strip_one_level(self):
         """Verify patch targets strip one level."""

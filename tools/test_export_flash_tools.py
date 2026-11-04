@@ -85,27 +85,29 @@ class ExportTest(unittest.TestCase):
         """Release this software test's temporary resources."""
         self.tmp.cleanup()
 
-    def args(self, commit):
-        """Construct the command-line argument fixture for the selected source revision."""
+    def args(self):
+        """Construct the command-line argument fixture for the SDK checkout."""
         sources = self.root / "sources.json"
-        sources.write_text(json.dumps({"sdk": {"repo": "r", "tag": "t", "commit": commit}}))
+        sources.write_text(json.dumps({"sdk": {"repo": "r", "ref": "v1"}}))
         return Namespace(sdk=str(self.sdk), sources=str(sources), chip=["bl616cl"], version="0.1.0",
                          out=str(self.root / "out"))
 
     def test_export_keeps_executables_and_lists_every_file(self):
         """Verify export keeps executables and lists every file."""
-        manifest = eft.export(self.args(self.commit), eft.write_tools)
+        manifest = eft.export(self.args(), eft.write_tools)
         out = self.root / "out"
         for prog in ("bflb_fw_post_proc/bflb_fw_post_proc-ubuntu", "bouffalo_flash_cube/BLFlashCommand-ubuntu"):
             self.assertTrue(os.access(out / prog, os.X_OK), prog)
         on_disk = {str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()} - {"manifest.json"}
         self.assertEqual({f["path"] for f in manifest["files"]}, on_disk)
-        self.assertEqual(manifest["sdk"]["commit"], self.commit)
+        # sources.json names only a ref; the manifest records the commit the tools came from.
+        self.assertEqual(manifest["sdk"], {"repo": "r", "ref": "v1", "commit": self.commit})
 
-    def test_sdk_not_at_pinned_commit_is_rejected(self):
-        """Verify sdk not at pinned commit is rejected."""
+    def test_dirty_sdk_is_rejected(self):
+        """Tools from a modified checkout would not match the recorded commit."""
+        (self.sdk / "untracked.txt").write_text("x")
         with self.assertRaises(ValueError):
-            eft.export(self.args("0" * 40), eft.write_tools)
+            eft.export(self.args(), eft.write_tools)
         self.assertFalse((self.root / "out").exists())
 
 

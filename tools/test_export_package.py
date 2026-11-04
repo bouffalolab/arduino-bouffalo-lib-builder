@@ -139,7 +139,7 @@ class RspQuoteTest(unittest.TestCase):
 class ParseLinkTest(unittest.TestCase):
     LINK = ("riscv64-unknown-elf-gcc -T/b/generated/linker.ld -Wl,-Map=/b/x.map -Wl,--cref "
             "-Wl,--gc-sections -nostartfiles -Wl,--print-memory-usage -Wl,--no-relax "
-            "--specs=picolibc.specs -ufw_header -Wl,-wrap,snprintf -L/sdk/macsw "
+            "--specs=picolibc.specs -ufw_header -Wl,-wrap,snprintf -Wl,-wrap,main -L/sdk/macsw "
             "-march=rv32imafc_zicsr_zifencei CMakeFiles/x.elf.dir/main.c.obj -o build_out/x.elf "
             "-Wl,--whole-archive /sdk/phyrf/libphy.a build_out/lib/libapp.a "
             "-Wl,--no-whole-archive -lc -lm")
@@ -153,6 +153,17 @@ class ParseLinkTest(unittest.TestCase):
                                     "-march=rv32imafc_zicsr_zifencei"])
         self.assertEqual(libs, ["-lc", "-lm"])
         self.assertEqual(dirs, ["/sdk/macsw"])
+
+    def test_sdk_main_wrapper_dropped(self):
+        """The Core main owns constructor order; exporting the SDK main wrapper would run them twice."""
+        _, ld_flags, _, _ = ep.parse_link(self.LINK, "/b")
+        self.assertNotIn("-Wl,-wrap,main", ld_flags)
+        self.assertIn("-Wl,-wrap,snprintf", ld_flags)
+
+    def test_only_picolibc_link_supported(self):
+        """Forced-member analysis reads picolibc archives; a newlib nano link would analyse the wrong libc."""
+        with self.assertRaises(ValueError):
+            ep.toolchain_libs("gcc", ["--specs=nano.specs", "-march=rv32imafc_zicsr_zifencei"])
 
 
 class LinkerScriptTest(unittest.TestCase):
@@ -289,23 +300,25 @@ class SdkTreeTest(unittest.TestCase):
 
     def test_patches_require_build_tree(self):
         """Verify patches require build tree."""
-        pinned = {"commit": "c" * 40, "patches": [{"file": "patches/x.patch", "sha256": "0" * 64}]}
+        pinned = {"ref": "v1", "patches": [{"file": "patches/x.patch", "sha256": "0" * 64}]}
         with self.assertRaises(ValueError):
-            ep.sdk_tree(None, Path("/sdk"), pinned)
+            ep.sdk_tree(None, Path("/sdk"), pinned, "c" * 40)
 
     def test_without_patches_checkout_is_used(self):
         """Verify without patches checkout is used."""
-        self.assertEqual(ep.sdk_tree(None, Path("/sdk"), {"commit": "c" * 40}), Path("/sdk"))
+        self.assertEqual(ep.sdk_tree(None, Path("/sdk"), {"ref": "v1"}, "c" * 40), Path("/sdk"))
 
     def test_tree_marker_must_match(self):
         """Verify tree marker must match."""
         import prepare_sdk_tree as pst
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / pst.MARKER).write_text(json.dumps({"commit": "c" * 40, "patches": []}))
-            self.assertEqual(ep.sdk_tree(d, Path("/sdk"), {"commit": "c" * 40}), Path(d).resolve())
+            self.assertEqual(ep.sdk_tree(d, Path("/sdk"), {"ref": "v1"}, "c" * 40), Path(d).resolve())
             with self.assertRaises(ValueError):
-                ep.sdk_tree(d, Path("/sdk"), {"commit": "c" * 40,
-                                               "patches": [{"file": "patches/x.patch", "sha256": "0" * 64}]})
+                ep.sdk_tree(d, Path("/sdk"), {"ref": "v1",
+                                               "patches": [{"file": "patches/x.patch", "sha256": "0" * 64}]}, "c" * 40)
+            with self.assertRaises(ValueError):  # Tree prepared from another commit than the checkout.
+                ep.sdk_tree(d, Path("/sdk"), {"ref": "v1"}, "d" * 40)
 
 
 class MapMembersTest(unittest.TestCase):
@@ -331,6 +344,11 @@ class PostProcTest(unittest.TestCase):
                "--boot2file=/s/boot2.bin --ptfile=/s/pt.toml --dtsfile=/s/a.dts\n")
         self.assertEqual(ep.post_proc_files(log),
                          {"boot2": "/s/boot2.bin", "partition": "/s/pt.toml", "dts": "/s/a.dts"})
+
+    def test_boot2_name_is_version_free(self):
+        """boards.txt names boot/boot2.bin, so an SDK release with a new boot2 needs no platform change."""
+        self.assertEqual(ep.boot_resource_name("boot2", "/s/boot2_bl616cl_isp_release_v8.2.2.bin"), "boot2.bin")
+        self.assertEqual(ep.boot_resource_name("partition", "/s/partition_cfg_4M.toml"), "partition_cfg_4M.toml")
 
 
 if __name__ == "__main__":

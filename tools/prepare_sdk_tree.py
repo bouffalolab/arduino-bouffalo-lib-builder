@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Prepare a build SDK tree from a clean sources.json-pinned checkout, including ignored-
+"""Prepare a build SDK tree from a clean checkout of the sources.json SDK ref, including ignored-
 
 file cleanliness. Hardlink tracked files, but detach patch targets before applying
 ordered sdk.patches with checked SHA256 and -p1. Verify the checkout again afterward.
 Stage beside out and replace only on success; allow only absent/empty/recognized
-outputs. MARKER records source commit and patches for export verification. Point GIT_DIR
+outputs. MARKER records the checked-out commit and patches for export verification. Point GIT_DIR
 at the checkout and GIT_WORK_TREE at out so SDK-generated version strings retain the
 patched dirty marker. Remove obsolete patches when updating to an upstream version
 containing them.
@@ -28,14 +28,12 @@ def git(repo, *args):
     return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
 
 
-def check_checkout(sdk, commit):
-    """Require the source checkout to match its pinned revision and cleanliness policy."""
-    head = git(sdk, "rev-parse", "HEAD").strip()
-    if head != commit:
-        raise ValueError("SDK HEAD %s != pinned %s" % (head, commit))
+def check_checkout(sdk):
+    """Require a clean source checkout, including ignored files; return its commit."""
     status = git(sdk, "status", "--porcelain", "--ignored")
     if status.strip():
         raise ValueError("SDK checkout is not clean: %s\n%s" % (sdk, status[:2000]))
+    return git(sdk, "rev-parse", "HEAD").strip()
 
 
 def tracked_files(sdk):
@@ -109,7 +107,7 @@ def prepare(sdk, sources_path, out):
     sdk, sources_path, out = Path(sdk).resolve(), Path(sources_path).resolve(), Path(out).resolve()
     pinned = json.loads(sources_path.read_text())["sdk"]
     patches = pinned.get("patches", [])
-    check_checkout(sdk, pinned["commit"])
+    commit = check_checkout(sdk)
     check_replaceable(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(prefix=out.name + ".tmp-", dir=out.parent))
@@ -129,9 +127,10 @@ def prepare(sdk, sources_path, out):
                     unshare(tmp / rel)
             apply_patch(tmp, path)
             applied.append({"file": p["file"], "sha256": digest})
-        (tmp / MARKER).write_text(json.dumps({"commit": pinned["commit"], "patches": applied}, indent=1) + "\n")
+        (tmp / MARKER).write_text(json.dumps({"commit": commit, "patches": applied}, indent=1) + "\n")
         # Hardlinks share content; a changed checkout indicates a patch wrote through a link that was not detached.
-        check_checkout(sdk, pinned["commit"])
+        if check_checkout(sdk) != commit:
+            raise ValueError("SDK checkout moved while preparing %s" % out)
         check_replaceable(out)
         if out.exists():
             shutil.rmtree(out)
@@ -150,9 +149,9 @@ def read_marker(tree):
     return json.loads(path.read_text())
 
 
-def check_tree(tree, pinned):
-    """Require prepared-tree commit and patches to match sources.json SDK metadata."""
-    want = {"commit": pinned["commit"],
+def check_tree(tree, pinned, commit):
+    """Require the prepared tree to come from commit with the sources.json patch list."""
+    want = {"commit": commit,
             "patches": [{"file": p["file"], "sha256": p["sha256"]} for p in pinned.get("patches", [])]}
     marker = read_marker(tree)
     if marker != want:

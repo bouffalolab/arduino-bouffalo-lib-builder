@@ -1,0 +1,26 @@
+kconfig: tolerate components absent from the public release
+
+bouffalo_sdk v2.3.38 sources components/bflb_gmf/Kconfig and
+components/av_render/Kconfig unconditionally, but the public release does
+not ship either component, so configuring any project fails with
+"'components/bflb_gmf/Kconfig' not found". Use osource for them, as the
+same file already does for zigbee ("ships out-of-tree in external
+releases"). Neither component is used by the Arduino package.
+
+Applies to components/Kconfig of bouffalo_sdk v2.3.38 (946f92a0).
+Drop this patch when sources.json moves to a release that ships these
+components or marks them optional.
+
+--- a/components/Kconfig
++++ b/components/Kconfig
+@@ -18,8 +18,8 @@ source "$BL_SDK_BASE/components/os/Kconfig"
+ source "$BL_SDK_BASE/components/iperf/Kconfig"
+ source "$BL_SDK_BASE/components/shell/Kconfig"
+ source "$BL_SDK_BASE/components/soln_utils/Kconfig"
+-source "$BL_SDK_BASE/components/bflb_gmf/Kconfig"
+-source "$BL_SDK_BASE/components/av_render/Kconfig"
++osource "$BL_SDK_BASE/components/bflb_gmf/Kconfig"
++osource "$BL_SDK_BASE/components/av_render/Kconfig"
+ source "$BL_SDK_BASE/components/usb/Kconfig"
+ source "$BL_SDK_BASE/components/utils/Kconfig"
+ source "$BL_SDK_BASE/components/wamr/Kconfig"

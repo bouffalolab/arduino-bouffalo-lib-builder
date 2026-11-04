@@ -7,7 +7,8 @@
 # 3. rtos uses FreeRTOS only; main must come from the test and heap functions from the SDK libc port.
 # No archive member from the Wi-Fi link group may be included.
 # 4. wifi uses carrier main.c and ld_libs_wifi to check link closure without whole-archiving every archive.
-# Require the native reference's contributing archive members and nonempty output sections.
+# Require the native reference's contributing archive members and nonempty allocated output sections
+# (debug sections are excluded: export_package strips package debug information).
 set -euo pipefail
 
 PKG_SRC=$(realpath -e "$1")
@@ -83,12 +84,15 @@ check "wifi: 链接闭合并含 wl80211_init" 'grep -q " T wl80211_init$" "$TMP/
 check "wifi: SDK 原生链接中有内容的包内成员都已链入" \
     '"${CHECK_LINK[@]}" parity "$PKG/manifest.json" "$REF_MAP" "$TMP/wifi.map"'
 
-# Inspect expected image sections with the selected cross-toolchain.
-sections() { "$TC_BIN/riscv64-unknown-elf-size" -A "$1" | awk 'NR>2 && $1 ~ /^\./ {print $1, $2}'; }
+# List allocated (image) sections and their sizes; readelf -SW prints Flg as field 7 when present.
+sections() {
+    "$TC_BIN/riscv64-unknown-elf-readelf" -SW "$1" | sed -nE 's/^ *\[ *[0-9]+\] +//p' |
+        awk 'NF == 10 && $7 ~ /A/ {print $1, ($5 ~ /[1-9a-f]/) ? 1 : 0}'
+}
 join -a1 -e 0 -o 0,1.2,2.2 <(sections "$REF_ELF" | sort) <(sections "$TMP/wifi.elf" | sort) |
     awk '$2 > 0 && $3 == 0 {print "  " $1 " ref=" $2 " ours=" $3}' >"$TMP/missing_sections"
 cat "$TMP/missing_sections"
-check "wifi: 原生 ELF 中非空的输出段都存在" '[ ! -s "$TMP/missing_sections" ]'
+check "wifi: 原生 ELF 中非空的已分配输出段都存在" '[ ! -s "$TMP/missing_sections" ]'
 
 echo "-- 尺寸"
 "$TC_BIN/riscv64-unknown-elf-size" "$TMP/rtos.elf" "$TMP/wifi.elf" "$REF_ELF"

@@ -8,7 +8,6 @@ import json
 import re
 from pathlib import Path
 
-HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -28,10 +27,10 @@ def validate(root: Path) -> dict:
     toolchain = data.get("toolchain", {})
     if not sdk.get("repo", "").startswith("https://"):
         errors.append("sdk.repo must use HTTPS")
-    if not HEX40.fullmatch(sdk.get("commit", "")) or set(sdk.get("commit", "")) == {"0"}:
-        errors.append("sdk.commit must be a nonzero 40-character SHA-1")
     if not sdk.get("ref"):
-        errors.append("sdk.ref is required as provenance")
+        errors.append("sdk.ref (release tag or branch) is required")
+    if "commit" in sdk:
+        errors.append("sdk.commit is not used: build.sh resolves sdk.ref and manifests record the commit")
     patches = sdk.get("patches", [])
     if not patches:
         errors.append("sdk.patches must not be empty")
@@ -54,7 +53,7 @@ def validate(root: Path) -> dict:
         errors.append("toolchain.dir is required")
     result = {
         "schema": "arduino-bl-source-lock/v1",
-        "sdk": {"repo": sdk.get("repo"), "ref": sdk.get("ref"), "commit": sdk.get("commit"), "patches": patch_records},
+        "sdk": {"repo": sdk.get("repo"), "ref": sdk.get("ref"), "patches": patch_records},
         "toolchain": {"name": toolchain.get("name"), "version": toolchain.get("version"), "url": toolchain.get("url"), "sha256": toolchain.get("sha256"), "dir": toolchain.get("dir")},
         "errors": errors,
     }
