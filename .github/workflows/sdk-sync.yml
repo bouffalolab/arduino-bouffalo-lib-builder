@@ -1,6 +1,6 @@
 name: sdk-sync
 
-# Daily check for a bouffalo_sdk release (vX.Y.Z) newer than sources.json sdk.ref. When one exists:
+# Weekly check for a bouffalo_sdk release (vX.Y.Z) newer than sources.json sdk.ref. When one exists:
 # push branch sdk-sync/<tag> with only sdk.ref changed, build it with firmware-ci against platform
 # and bridge master, and open a pull request (draft if the build failed). Nothing is published;
 # version bumps, patch updates and hardware acceptance stay with the maintainer.
@@ -8,7 +8,7 @@ name: sdk-sync
 
 on:
   schedule:
-    - cron: '30 2 * * *'
+    - cron: '30 2 * * 1'
   workflow_dispatch:
 
 permissions:
