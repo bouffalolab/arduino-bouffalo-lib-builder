@@ -7,15 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       builder-ref:
-        description: 'Builder branch or commit (default: dispatched revision)'
+        description: 'Builder branch or full SHA (default: dispatched revision)'
         type: string
         required: false
       platform-ref:
-        description: 'Platform branch or commit (default: master)'
+        description: 'Platform branch or full SHA (default: master)'
         type: string
         required: false
       bridge-ref:
-        description: 'Bridge branch or commit (default: master)'
+        description: 'Bridge branch or full SHA (default: master)'
         type: string
         required: false
   workflow_call:
