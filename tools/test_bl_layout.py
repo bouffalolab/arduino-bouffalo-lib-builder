@@ -2,6 +2,7 @@
 """Software auxiliary checks: layout contracts and fake uploader argument assembly, no hardware."""
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import tempfile
@@ -62,6 +63,28 @@ class LayoutTest(unittest.TestCase):
         m = self.prepare()
         self.assertEqual(m["filesystem"], {"address": 0x310000, "size": 416 * 1024})
         self.assertIn("0x17d800", (self.build / "layout.ld").read_text())
+
+    def test_fota_binds_chip_and_rejects_corrupt_images(self):
+        """A generated image must match the processed raw firmware and its digest."""
+        raw = b"BFNP" + bytes(4092)
+        image = self.root / "image.bin"
+        ota = self.root / "image.bin.ota"
+        image.write_bytes(raw)
+        header = bytearray(512)
+        header[:16] = b"BL60X_OTA_Ver1.0"
+        header[16:20] = b"RAW "
+        header[20:24] = len(raw).to_bytes(4, "little")
+        header[64:96] = hashlib.sha256(raw).digest()
+        ota.write_bytes(header + raw)
+        result = layout.make_fota(image, ota, len(raw))
+        self.assertEqual(result[32:48], layout.FOTA_CHIP)
+        self.assertEqual(result[512:], raw)
+        with self.assertRaises(ValueError):
+            layout.make_fota(image, ota, len(raw) - 1)
+        header[64] ^= 1
+        ota.write_bytes(header + raw)
+        with self.assertRaises(ValueError):
+            layout.make_fota(image, ota, len(raw))
 
     def test_custom_changes_capacity_without_rebuilding_libs(self):
         """Verify custom changes capacity without rebuilding libs."""
@@ -173,7 +196,8 @@ class LayoutTest(unittest.TestCase):
         with mock.patch.object(layout.subprocess, "run") as run:
             layout.upload(self.args)
         cmd = run.call_args.args[0]
-        self.assertEqual(cmd[cmd.index("write_flash_files") + 1::2], ["0x0", "0xe000", "0x10000"])
+        # A stale secondary table can otherwise select an old OTA slot after upload.
+        self.assertEqual(cmd[cmd.index("write_flash_files") + 1::2], ["0x0", "0xe000", "0xf000", "0x10000"])
         self.assertIn("0xe000", cmd)
         self.assertIn("0x10000", cmd)
         self.assertNotIn("0x310000", cmd)

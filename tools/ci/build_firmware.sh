@@ -26,11 +26,11 @@ python3 -I "$ROOT/tools/export_package.py" \
     --build "$WORK/build/bl616cl-default" --build-log "$WORK/build/bl616cl-default.log" \
     --sdk "$WORK/bouffalo_sdk" --sdk-tree "$WORK/build/bl616cl-default.sdk" \
     --sources "$ROOT/sources.json" --toolchain-bin "$TC/bin" \
-    --profile bl616cl/default --version 0.11.0 --out "$WORK/out/bl616cl-libs"
+    --profile bl616cl/default --version 0.12.0 --out "$WORK/out/bl616cl-libs"
 "$ROOT/tools/build_layout_tool.sh" "$WORK/layout-tool" >"$OUT/layout-tool.log" 2>&1
 python3 -I "$ROOT/tools/export_flash_tools.py" \
     --sdk "$WORK/bouffalo_sdk" --sources "$ROOT/sources.json" --chip bl616cl \
-    --layout-tool "$WORK/layout-tool/dist/bl-layout" --version 0.2.1 --out "$WORK/out/bl-flash-tools"
+    --layout-tool "$WORK/layout-tool/dist/bl-layout" --version 0.3.0 --out "$WORK/out/bl-flash-tools"
 
 # Arduino CLI's standard sketchbook platform layout; dependencies are explicit packages.
 mkdir -p "$WORK/arduino/user/hardware/bouffalolab" "$WORK/arduino/data" "$WORK/arduino/downloads"
@@ -50,6 +50,7 @@ for sketch in \
     "$PLATFORM/libraries/BLEController/examples/ControllerUSB" \
     "$PLATFORM/libraries/LittleFS/examples/Persistence" \
     "$PLATFORM/libraries/Preferences/examples/Counter" \
+    "$PLATFORM/libraries/BLUpdate/examples/SerialUpdate" \
     "$BRIDGE/UNOR4USBBridgeBL"; do
     name=$(basename "$sketch")
     echo "Building $name"

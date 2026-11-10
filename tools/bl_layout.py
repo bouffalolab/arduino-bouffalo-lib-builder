@@ -14,11 +14,25 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 SCHEMA = "arduino-bl-layout/v1"
+FOTA_CHIP = b"BL616CL".ljust(16, b"\0")
 
 
 def digest(path):
     """Return the SHA-256 digest of the supplied file."""
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def make_fota(image, vendor_ota, capacity):
+    """Bind a post-processed raw OTA image to the selected BL616CL target."""
+    raw = Path(image).read_bytes()
+    ota = bytearray(Path(vendor_ota).read_bytes())
+    if (len(raw) > capacity or len(raw) < 4096 or raw[:4] != b"BFNP" or
+            len(ota) != len(raw) + 512 or ota[:16] != b"BL60X_OTA_Ver1.0" or
+            ota[16:20] != b"RAW " or int.from_bytes(ota[20:24], "little") != len(raw) or
+            ota[64:96] != hashlib.sha256(raw).digest() or ota[512:] != raw):
+        raise ValueError("invalid or oversized BL616CL OTA image")
+    ota[32:48] = FOTA_CHIP
+    return ota
 
 
 def validate(data, baseline):
@@ -146,6 +160,7 @@ def finalize(args):
                     "--dtsfile=" + str(libs / "boot" / args.dts)], check=True)
     if image.stat().st_size > m["fw_capacity"]:
         raise ValueError("post-processed image exceeds firmware partition")
+    Path(str(image) + ".blfota").write_bytes(make_fota(image, str(image) + ".ota", m["fw_capacity"]))
     m.update(image_sha256=digest(image), partition_sha256=digest(build / "partition.bin"))
     (build / "layout.json").write_text(json.dumps(m, indent=2) + "\n")
     # Arduino CLI --output-dir copies the image and its .bin.* sidecars.
@@ -185,12 +200,15 @@ def upload(args):
     m = load(build, image)
     if digest(libs / "boot" / m["boot2"]) != m["boot2_sha256"]:
         raise ValueError("boot2 identity mismatch")
+    _, table, partition = artifact_paths(build, image)
+    backup_pt = tomllib.loads(table.read_text())["pt_table"]["address1"]
     # BLFlashCommand writes its own configuration/log directories. Keep the installed tools read-only.
     runner = build / "flash-runner"
     shutil.copytree(tools / "bouffalo_flash_cube", runner, dirs_exist_ok=True)
     subprocess.run([str(runner / "BLFlashCommand-ubuntu"), "--interface=uart", "--chipname=bl616cl",
                     "--port=" + args.port, "--baudrate=" + args.speed, "--warm_reset", "write_flash_files",
-                    "0x0", str(libs / "boot" / m["boot2"]), hex(m["pt_address"]), str(artifact_paths(build, image)[2]),
+                    "0x0", str(libs / "boot" / m["boot2"]), hex(m["pt_address"]), str(partition),
+                    hex(backup_pt), str(partition),
                     hex(m["fw_address"]), str(image)], check=True)
 
 
@@ -207,6 +225,9 @@ def export_images(args):
         dst = out / name
         if source.resolve() != dst.resolve():
             shutil.copy2(source, dst)
+    fota = Path(str(image) + ".blfota")
+    if fota.is_file():
+        shutil.copy2(fota, out / (args.project + ".bin.blfota"))
     print("Flash bundle: " + str(out))
 
 

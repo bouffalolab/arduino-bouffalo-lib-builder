@@ -48,3 +48,7 @@ CONFIG_PARTITION =y
 CONFIG_BFLB_MTD =y
 CONFIG_OVERRIDE_PTFILE =partition_cfg_4M_lfs_v1.toml
 CONFIG_FLASH_XIP_LENGTH =0x17d800
+
+# Build the chip OTA engine without erasing the whole inactive slot at begin.
+CONFIG_FOTA =y
+CONFIG_FAST_OTA =0
