@@ -28,7 +28,12 @@ on:
         required: true
       bridge-ref:
         type: string
-        required: true
+        required: false
+        default: master
+      skip-bridge:
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -49,6 +54,7 @@ jobs:
           ref: ${{ inputs.platform-ref || 'master' }}
           path: platform
       - uses: actions/checkout@v4
+        if: ${{ !inputs.skip-bridge }}
         with:
           repository: bouffalolab/arduino-bouffalo-uno-r4-wifi-usb-bridge
           ref: ${{ inputs.bridge-ref || 'master' }}
@@ -62,7 +68,14 @@ jobs:
       - name: Install maintainer build requirements
         run: python3 -m pip install pyinstaller==6.15.0 tomli==2.2.1 cryptography==44.0.3
       - name: Build dependency packages and Arduino firmware
-        run: builder/tools/ci/build_firmware.sh platform bridge
+        env:
+          SKIP_BRIDGE: ${{ inputs.skip-bridge }}
+        run: |
+          if [ "$SKIP_BRIDGE" = true ]; then
+            builder/tools/ci/build_firmware.sh platform
+          else
+            builder/tools/ci/build_firmware.sh platform bridge
+          fi
       - name: Preserve build evidence
         if: always()
         uses: actions/upload-artifact@v4

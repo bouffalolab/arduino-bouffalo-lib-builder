@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Build pinned dependencies and representative Arduino firmware; never flash or publish.
+# Build dependencies and representative Arduino firmware; never flash or publish.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PLATFORM=$(realpath -e "${1:?platform checkout required}")
-BRIDGE=$(realpath -e "${2:?bridge checkout required}")
+BRIDGE=
+if [[ -n "${2:-}" ]]; then
+    BRIDGE=$(realpath -e "$2")
+fi
 WORK=${BL_BUILDER_WORK:-$ROOT/work}
 OUT=$WORK/ci-artifacts
 mkdir -p "$OUT"
@@ -14,6 +17,9 @@ import json, subprocess, sys
 from pathlib import Path
 commits = {}
 for name, path in zip(('builder', 'platform', 'bridge'), sys.argv[1:4]):
+    if not path:
+        commits[name] = None
+        continue
     if subprocess.check_output(['git', '-C', path, 'status', '--porcelain']).strip():
         raise SystemExit('source checkout is dirty: ' + name)
     commits[name] = subprocess.check_output(['git', '-C', path, 'rev-parse', 'HEAD'], text=True).strip()
@@ -43,15 +49,19 @@ directories:
 EOF
 CLI=(arduino-cli --config-file "$WORK/arduino/arduino-cli.yaml")
 "${CLI[@]}" core update-index
-for sketch in \
+sketches=(
     "$PLATFORM/tests/sketches/Blink" \
     "$PLATFORM/tests/sketches/SerialEcho" \
     "$PLATFORM/tests/sketches/WiFiScan" \
     "$PLATFORM/libraries/BLEController/examples/ControllerUSB" \
     "$PLATFORM/libraries/LittleFS/examples/Persistence" \
-    "$PLATFORM/libraries/Preferences/examples/Counter" \
-    "$PLATFORM/libraries/BLUpdate/examples/SerialUpdate" \
-    "$BRIDGE/UNOR4USBBridgeBL"; do
+    "$PLATFORM/libraries/Preferences/examples/Counter"
+    "$PLATFORM/libraries/BLUpdate/examples/SerialUpdate"
+)
+if [[ -n "$BRIDGE" ]]; then
+    sketches+=("$BRIDGE/UNOR4USBBridgeBL")
+fi
+for sketch in "${sketches[@]}"; do
     name=$(basename "$sketch")
     echo "Building $name"
     "${CLI[@]}" compile -b bouffalolab:bl:unor4wifi_bl616cl \
