@@ -47,6 +47,16 @@ The exported packages are consumed by the Arduino platform as follows:
 
 Maintainers should keep the source lock, patch rationale, package metadata, and validation results together for each release.
 
+### Test dependent changes across repositories
+
+Automatic firmware CI tests the triggering repository's revision with the other
+repositories' `master` branches. For changes that depend on unmerged commits in
+more than one repository, run the builder's `firmware-ci` workflow manually and
+set `platform-ref`, `bridge-ref`, and optionally `builder-ref` to the branches or
+commit SHAs available in their respective repositories. The workflow artifact's
+`commits.json` records the exact revisions used. A passing build is not hardware
+acceptance or a release.
+
 ## Directory structure
 
 - **Source configuration** — pinned SDK and toolchain identities.
