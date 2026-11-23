@@ -1,7 +1,7 @@
 {
   "sdk": {
     "repo": "https://github.com/bouffalolab/bouffalo_sdk.git",
-    "ref": "v2.3.38",
+    "ref": "v2.3.39",
     "patches": [
       {
         "file": "patches/sdk/kconfig-unreleased-components.patch",
