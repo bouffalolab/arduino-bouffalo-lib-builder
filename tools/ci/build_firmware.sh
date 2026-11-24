@@ -32,7 +32,7 @@ python3 -I "$ROOT/tools/export_package.py" \
     --build "$WORK/build/bl616cl-default" --build-log "$WORK/build/bl616cl-default.log" \
     --sdk "$WORK/bouffalo_sdk" --sdk-tree "$WORK/build/bl616cl-default.sdk" \
     --sources "$ROOT/sources.json" --toolchain-bin "$TC/bin" \
-    --profile bl616cl/default --version 0.12.0 --out "$WORK/out/bl616cl-libs"
+    --profile bl616cl/default --version 0.13.0 --out "$WORK/out/bl616cl-libs"
 "$ROOT/tools/build_layout_tool.sh" "$WORK/layout-tool" >"$OUT/layout-tool.log" 2>&1
 python3 -I "$ROOT/tools/export_flash_tools.py" \
     --sdk "$WORK/bouffalo_sdk" --sources "$ROOT/sources.json" --chip bl616cl \
