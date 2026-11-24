@@ -4,8 +4,10 @@
 # Usage: tools/install_check.sh <arduino-bl-repository> [hidden-path...]
 #
 # 1. make_index.py archives platform HEAD and work/out packages for a loopback HTTP server.
-# CLI accepts file:// indexes but not file:// archives; keep data/downloads/sketchbook paths temporary.
+# CLI accepts file:// indexes but not file:// archives; keep data/sketchbook paths temporary.
 # Build caches are temporary too; installation needs network access for Arduino built-in tools.
+# Downloads are temporary unless ARDUINO_DIRECTORIES_DOWNLOADS (Arduino CLI's own setting) names a
+# shared directory, whose archives the CLI reuses when they match the index checksum.
 # 2. Use bubblewrap to disable networking and hide work/out, work/toolchain and supplied paths.
 # Use installed tools only. Compile Blink/SerialEcho and check maps/images each time.
 # Test sketches/checkers are export-ignored, so read them from the same platform HEAD as the archive.
@@ -25,7 +27,8 @@ PORT=${BL_INDEX_PORT:-8765}
 FQBN=bouffalolab:bl:unor4wifi_bl616cl
 TARBALL=$WORK/toolchain-dl/$(python3 -I -c 'import json, os, sys; print(os.path.basename(json.load(open(sys.argv[1]))["toolchain"]["url"]))' "$ROOT/sources.json")
 TMP=$(mktemp -d)
-echo "临时目录：$TMP"
+DOWNLOADS=${ARDUINO_DIRECTORIES_DOWNLOADS:-$TMP/downloads}
+echo "临时目录：$TMP，下载目录：$DOWNLOADS"
 
 python3 "$ROOT/tools/make_index.py" --platform "$PLATFORM" --libs "$WORK/out/bl616cl-libs" \
     --flash-tools "$WORK/out/bl-flash-tools" --sources "$ROOT/sources.json" --toolchain-tarball "$TARBALL" \
@@ -57,7 +60,7 @@ build_cache:
   path: $TMP/cache
 directories:
   data: $1
-  downloads: $TMP/downloads
+  downloads: $DOWNLOADS
   user: $TMP/sketchbook
 EOF
 }

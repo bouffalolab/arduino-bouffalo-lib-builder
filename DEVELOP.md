@@ -125,7 +125,7 @@ If `BL_BUILDER_WORK` is set, replace the last two arguments with the correspondi
 
 The check serves a local package index, installs into an empty Arduino CLI environment, then compiles with network disabled and SDK/build paths hidden. It also checks relocation, read-only installed packages, and a sketchbook Core override.
 
-It archives the platform's committed HEAD, so this is a package acceptance check rather than a test of uncommitted platform edits. Initial installation requires network access for Arduino built-in tools.
+It archives the platform's committed HEAD, so this is a package acceptance check rather than a test of uncommitted platform edits. Initial installation requires network access for Arduino built-in tools. Downloads go to a temporary directory unless `ARDUINO_DIRECTORIES_DOWNLOADS` names a persistent one; Arduino CLI then reuses archives that match the index checksum and downloads the rest.
 
 ### Hardware acceptance
 
