@@ -1,10 +1,12 @@
 /*
  * Derived from Apache-2.0 bouffalo_sdk v2.3.37 (f924fbb), bsp/board/bl616cldk/board.c. Replace it
- * through board_overlay and retain chip-level initialization only. Changes: board_init no longer
- * hardcodes UART0 GPIO34/35 or initializes a console; callers select debug UART/pins through
- * board_console_init. Suppress startup banners, component versions, trim and Flash reports. Move
- * Wi-Fi IRQ hookup into board_wifi.c so interrupt0_handler does not pull wireless libraries into
- * every sketch. Without console initialization, SDK printf output is discarded.
+ * through board_overlay and retain chip-level initialization only. Changes: board initialization
+ * no longer hardcodes UART0 GPIO34/35 or initializes a console; callers select debug UART/pins
+ * through board_console_init. Suppress startup banners, component versions, trim and Flash
+ * reports. Move Wi-Fi IRQ hookup into board_wifi.c so interrupt0_handler does not pull wireless
+ * libraries into every sketch. Without console initialization, SDK printf output is discarded.
+ * Following SDK v2.3.39, the former board_init steps run as SYSINIT records in their original
+ * order (CONFIG_SYSINIT_CUSTOM_BOARD_INIT excludes the SDK board.c files).
  */
 
 #include <string.h>
@@ -26,6 +28,7 @@
 #include "bflb_acomp.h"
 #include "bflb_efuse.h"
 #include "board.h"
+#include "sysinit.h"
 #include "bl616cl_tzc_sec.h"
 #include "bl616cl_pm.h"
 
@@ -469,21 +472,21 @@ enum bflb_rtc_32k_clk_type board_get_rtc_32k_clk_type(void)
     return BFLB_RTC_32K_CLK_RC;
 }
 
-/**
- * @brief Initialize chip clocks, memory, interrupts and selected board peripherals before Core
- * startup.
- */
-void board_init(void)
-{
-    int ret = -1;
-    uintptr_t flag;
+/* Carries the board IRQ boundary across the registered board records. */
+static uintptr_t board_irq_flags;
+static int board_flash_ret = -1;
 
-    /* lock */
-    flag = bflb_irq_save();
+/**
+ * @brief SYSINIT 10.00: lock interrupts, initialize Flash and raise its clock.
+ */
+static void board_sysinit_flash(const void *arg)
+{
+    (void)arg;
+    board_irq_flags = bflb_irq_save();
 
 #ifndef CONFIG_BOARD_FLASH_INIT_SKIP
     /* flash init */
-    ret = bflb_flash_init();
+    board_flash_ret = bflb_flash_init();
 #ifndef CONFIG_BOARD_FLASH_LOW_SPEED
 #ifdef CONFIG_BOARD_FLASH_96M
     /* flash clock frequency increased to 96MHz */
@@ -496,8 +499,15 @@ void board_init(void)
 #endif
 #endif
 #endif
+}
+SYSINIT(arduino_board_flash, SI_SUB_HW, SI_ORDER_FIRST, board_sysinit_flash, NULL);
 
-    /* system clock */
+/**
+ * @brief SYSINIT 20.00: system clock, RTC and peripheral clocks.
+ */
+static void board_sysinit_clock(const void *arg)
+{
+    (void)arg;
     system_clock_init();
 
     bflb_rtc_init(NULL, board_get_rtc_32k_clk_type());
@@ -507,7 +517,16 @@ void board_init(void)
 #else
     peripheral_clock_init_lp();
 #endif
+}
+SYSINIT(arduino_board_clock, SI_SUB_CLOCK, SI_ORDER_FIRST, board_sysinit_clock, NULL);
 
+/**
+ * @brief SYSINIT 30.00: interrupt controller and brown-out detection. Wi-Fi IRQ hookup is
+ * board_wifi.c's own record.
+ */
+static void board_sysinit_irq(const void *arg)
+{
+    (void)arg;
     /* irq init */
     bflb_irq_initialize();
 #ifdef CONFIG_HIGH_ISR_STACK
@@ -518,7 +537,16 @@ void board_init(void)
     bflb_irq_attach(BOD_IRQn, system_bod_isr, NULL);
     bflb_irq_enable(BOD_IRQn);
     system_bod_init();
+}
+SYSINIT(arduino_board_irq, SI_SUB_INTR, SI_ORDER_FIRST, board_sysinit_irq, NULL);
 
+/**
+ * @brief SYSINIT 40.01: RAM/PSRAM heaps, required before any allocation and before C++
+ * constructors (40.80).
+ */
+static void board_sysinit_heap(const void *arg)
+{
+    (void)arg;
     /* ram and heap init (including psram) */
     ram_heap_init();
 #if defined(CONFIG_PSRAM) || defined(CONFIG_PSRAM_XIP)
@@ -530,11 +558,18 @@ void board_init(void)
     bflb_check_anti_rollback();
 #endif
 
-    if (ret != 0) {
+    if (board_flash_ret != 0) {
         printf("flash init fail !!!\r\n");
     }
-    //printf("cgen1:%08x\r\n", getreg32(BFLB_GLB_CGEN1_BASE));
+}
+SYSINIT(arduino_board_heap, SI_SUB_DRIVERS, SI_ORDER_SECOND, board_sysinit_heap, NULL);
 
+/**
+ * @brief SYSINIT 40.02: logging backend and the security-engine mutex.
+ */
+static void board_sysinit_services(const void *arg)
+{
+    (void)arg;
     log_start();
 
 #if (defined(CONFIG_LUA) || defined(CONFIG_BFLB_LOG) || defined(CONFIG_FATFS))
@@ -542,9 +577,17 @@ void board_init(void)
 #endif
 
     bflb_sec_mutex_init();
+}
+SYSINIT(arduino_board_services, SI_SUB_DRIVERS, SI_ORDER_THIRD, board_sysinit_services, NULL);
 
+/**
+ * @brief SYSINIT 40.03: restore interrupts and enable bus error/timeout traps.
+ */
+static void board_sysinit_finish(const void *arg)
+{
+    (void)arg;
     /* unlock */
-    bflb_irq_restore(flag);
+    bflb_irq_restore(board_irq_flags);
 
     /* mcu_bus_cfg0 */
     *(volatile uint32_t *)MCU_MISC_BASE |= 0x1 << MCU_MISC_REG_MCU_INFRA_TIMEOUT_EN_POS;
@@ -556,6 +599,19 @@ void board_init(void)
     bflb_irq_enable(BMX_MCU_BUS_ERR_IRQn);
     bflb_irq_enable(BMX_MCU_TO_IRQn);
 }
+SYSINIT(arduino_board_finish, SI_SUB_DRIVERS, SI_ORDER_FOURTH, board_sysinit_finish, NULL);
+
+/**
+ * @brief SYSINIT 40.04: hand over to the Arduino Core after the heap and before C++ constructors
+ * (40.80). The Core defines arduino_bl_core_preinit(); this strong reference is the package
+ * contract announced by ARDUINO_BL_SYSINIT_STARTUP.
+ */
+static void board_sysinit_core(const void *arg)
+{
+    (void)arg;
+    arduino_bl_core_preinit();
+}
+SYSINIT(arduino_core_preinit, SI_SUB_DRIVERS, SI_ORDER_FIFTH, board_sysinit_core, NULL);
 
 /**
  * @brief Initialize the optional board analog-comparator configuration.

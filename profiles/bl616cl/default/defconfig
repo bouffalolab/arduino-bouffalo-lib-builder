@@ -35,7 +35,14 @@ CONFIG_VSNPRINTF_FLOAT        =y
 CONFIG_VSNPRINTF_FLOAT_EX     =y
 CONFIG_VSNPRINTF_LONG_LONG    =y
 
-CONFIG_MACSW_SELECT      = default
+CONFIG_MACSW_DEFAULT     =y
+
+# SDK v2.3.39 SYSINIT owns startup: board records from board_overlay.c (no SDK board.c), C++
+# constructors, the scheduler, partition table, RF and Wi-Fi bring-up; Core main() runs as the
+# SYSINIT application record. COMPAT_V2=n removes the deprecated no-op entry points.
+CONFIG_SYSINIT           =y
+CONFIG_SYSINIT_CUSTOM_BOARD_INIT =y
+CONFIG_COMPAT_V2         =n
 
 CONFIG_CHERRYUSB                =y
 CONFIG_CHERRYUSB_OSAL           =freertos

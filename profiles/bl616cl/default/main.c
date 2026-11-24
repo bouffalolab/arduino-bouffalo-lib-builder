@@ -1,56 +1,21 @@
 /*
  * SDK carrier entry point used only to close a complete profile link and capture linker.ld/flags.
- * Do not export this object; Arduino firmware gets main from the Core. Follow macsw_bare wl80211
- * initialization without the shell; board_wifi_irq_init owns Wi-Fi IRQ hookup.
+ * Do not export this object; Arduino firmware gets main and arduino_bl_core_preinit from the Core.
+ * SYSINIT owns board, C++ constructor, partition, RF and Wi-Fi startup and calls main() from its
+ * task after starting the scheduler, so main() only references optional components and returns.
  */
 #include "FreeRTOS.h"
-#include "task.h"
-#include "timers.h"
-#include <lwip/tcpip.h>
-#include "wl80211.h"
-#include "wifi_mgmr.h"
-#include "macsw_plat.h"
-#include "rfparam_adapter.h"
-#include "async_event.h"
 #include "board.h"
+#include "wifi_mgmr.h"
+#include "bflb_boot2.h"
 #include "usbd_core.h"
-#include "usbd_cdc_acm.h"
 #include "btble_lib_api.h"
 
 /**
- * @brief Drain deferred radio events while preserving the SDK scheduler exclusion convention.
+ * @brief Carrier placeholder for the Core pre-initialization hook called from SYSINIT 40.04.
  */
-static void async_event_handler(void *arg1, uint32_t arg2)
+void arduino_bl_core_preinit(void)
 {
-    vTaskSuspendAll();
-    async_event_loop();
-    xTaskResumeAll();
-}
-
-/**
- * @brief Schedule deferred async-event processing with a timer-task-safe wait policy.
- */
-static void async_event_loop_wake(void)
-{
-    TickType_t wait = portMAX_DELAY;
-
-    if (xTimerGetTimerDaemonTaskHandle() == xTaskGetCurrentTaskHandle()) {
-        wait = 0;
-    }
-    xTimerPendFunctionCall(async_event_handler, NULL, 0, wait);
-}
-
-/**
- * @brief Start Wi-Fi firmware, lwIP and management in their required order, then delete this
- * startup task.
- */
-static void wifi_start_firmware_task(void *param)
-{
-    wifi_task_create();
-    tcpip_init(NULL, NULL);
-    wl80211_init();
-    wifi_mgmr_init();
-    vTaskDelete(NULL);
 }
 
 /**
@@ -59,24 +24,15 @@ static void wifi_start_firmware_task(void *param)
  */
 int main(void)
 {
-    board_init();
-    board_wifi_irq_init();
-
-    if (rfparam_init(0, NULL, 0) != 0) {
-        return 0;
-    }
-
-    async_event_init(async_event_loop_wake);
     btble_controller_init(configMAX_PRIORITIES - 2);
 
-    /* Reference CherryUSB to verify link closure without initializing USB in the carrier. */
-    volatile void *usb_entry = (void *)usbd_initialize;
+    /* Reference CherryUSB, Wi-Fi management and the partition table (pulling the on-demand boot2
+     * record) to verify link closure without starting them. */
+    void *volatile usb_entry = (void *)usbd_initialize;
+    void *volatile wifi_entry = (void *)wifi_mgmr_sta_mac_get;
+    void *volatile partition_entry = (void *)bflb_boot2_get_pt_config;
     (void)usb_entry;
-
-    xTaskCreate(wifi_start_firmware_task, "wifi init", 1024, NULL, 10, NULL);
-
-    vTaskStartScheduler();
-
-    while (1) {
-    }
+    (void)wifi_entry;
+    (void)partition_entry;
+    return 0;
 }

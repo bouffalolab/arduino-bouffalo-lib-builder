@@ -16,11 +16,19 @@
 extern "C" {
 #endif
 
-/**
- * @brief Initialize chip Flash, clocks, interrupts and heap without console setup or startup
- * output.
+/*
+ * Package startup contract. Board initialization runs as SYSINIT records in board_overlay.c and
+ * board_wifi.c (Wi-Fi link group only); after the heap and before C++ constructors the package
+ * calls arduino_bl_core_preinit(), which the Arduino Core must define. SYSINIT then starts the
+ * scheduler and calls main() from its task. There is no board_init() entry point.
  */
-void board_init(void);
+#define ARDUINO_BL_SYSINIT_STARTUP 1
+
+/**
+ * @brief Core pre-initialization run once from SYSINIT 40.04, before C++ constructors; defined
+ * by the Arduino Core.
+ */
+void arduino_bl_core_preinit(void);
 
 /**
  * @brief Route SDK printf/LOG_x to uart0, uart1 or uart2. Require distinct valid chip pins and
@@ -28,17 +36,6 @@ void board_init(void);
  * peripherals.
  */
 int board_console_init(const char *uart_name, uint8_t tx_pin, uint8_t rx_pin, uint32_t baudrate);
-
-/**
- * @brief Attach/enable Wi-Fi interrupts once before starting Wi-Fi.
- */
-void board_wifi_irq_init(void);
-
-/**
- * @brief Shared Wi-Fi/BLE radio initialization, serialized by the application task. Initialize
- * RF parameters only once; return zero on success.
- */
-int board_radio_init(void);
 
 /**
  * @brief Return the board profile's configured 32 kHz RTC source.

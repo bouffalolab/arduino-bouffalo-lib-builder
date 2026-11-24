@@ -4,11 +4,14 @@
 #
 # 1. Copy the package to a temporary root to check relocation.
 # 2. Hide original package/SDK/build paths with bubblewrap before compilation.
-# 3. rtos uses FreeRTOS only; main must come from the test and heap functions from the SDK libc port.
-# No archive member from the Wi-Fi link group may be included.
-# 4. wifi uses carrier main.c and ld_libs_wifi to check link closure without whole-archiving every archive.
-# Require the native reference's contributing archive members and nonempty allocated output sections
-# (debug sections are excluded: export_package strips package debug information).
+# 3. rtos uses FreeRTOS only, following the package startup contract (SYSINIT starts the board, C++
+# runtime and scheduler, then calls main from its task); main must come from the test and heap functions
+# from the SDK libc port. No archive member from the Wi-Fi link group may be included, and only the base
+# group's kept SYSINIT records may be linked.
+# 4. wifi uses carrier main.c and ld_libs_wifi to check link closure without whole-archiving every archive
+# and requires the Wi-Fi group's kept SYSINIT records. Require the native reference's contributing archive
+# members and nonempty allocated output sections (debug sections are excluded: export_package strips
+# package debug information).
 set -euo pipefail
 
 PKG_SRC=$(realpath -e "$1")
@@ -40,13 +43,14 @@ static void idle_loop(void *arg)
     }
 }
 
+void arduino_bl_core_preinit(void)
+{
+}
+
 int main(void)
 {
-    board_init();
     xTaskCreate(idle_loop, "t", 512, NULL, 5, NULL);
-    vTaskStartScheduler();
-    for (;;) {
-    }
+    return 0;
 }
 EOF
 
@@ -80,7 +84,9 @@ check "rtos: main 由测试程序定义" 'grep -q ": rtos.o: definition of main$
 check "rtos: malloc 来自 SDK libc 移植层" \
     'grep -q "(liblibc.a@port_memory.c.obj): definition of malloc$" "$TMP/rtos.trace"'
 check "rtos: 未链入 wifi 链接组的归档" '"${CHECK_LINK[@]}" absent "$PKG/manifest.json" wifi "$TMP/rtos.map"'
-check "wifi: 链接闭合并含 wl80211_init" 'grep -q " T wl80211_init$" "$TMP/wifi.nm"'
+check "rtos: 只含 base 组保留的 SYSINIT 记录" '"${CHECK_LINK[@]}" sysinit "$PKG/manifest.json" "$TMP/rtos.map"'
+check "wifi: 含 wifi 组保留的 SYSINIT 记录" '"${CHECK_LINK[@]}" sysinit "$PKG/manifest.json" "$TMP/wifi.map" wifi'
+check "wifi: 链接闭合并含 SYSINIT 启动用的 _wl80211_init" 'grep -q " T _wl80211_init$" "$TMP/wifi.nm"'
 check "wifi: SDK 原生链接中有内容的包内成员都已链入" \
     '"${CHECK_LINK[@]}" parity "$PKG/manifest.json" "$REF_MAP" "$TMP/wifi.map"'
 

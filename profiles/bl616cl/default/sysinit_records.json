@@ -1,0 +1,29 @@
+{
+  "keep": {
+    "base": [
+      "arduino_board_flash",
+      "arduino_board_clock",
+      "arduino_board_irq",
+      "arduino_board_heap",
+      "arduino_board_services",
+      "arduino_board_finish",
+      "arduino_core_preinit",
+      "cxx_runtime",
+      "sysinit_sched",
+      "app_main"
+    ],
+    "wifi": [
+      "arduino_wifi_irq",
+      "wifi_events",
+      "rfparam",
+      "wifi_start",
+      "wifi_app_events"
+    ],
+    "ble": [
+      "rfparam"
+    ]
+  },
+  "on_demand": [
+    "boot2"
+  ]
+}

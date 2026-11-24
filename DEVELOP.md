@@ -85,6 +85,10 @@ This command builds the profile, exports runtime and flash-tool packages, and co
 
 For package-only iteration, use `tools/export_package.py` and `tools/export_flash_tools.py`. Their argument sets are shown in `tools/ci/build_firmware.sh`; use `--help` for details. Keep libraries, headers, configuration, flags, linker resources, and tool identities together.
 
+### Startup records
+
+Since bouffalo_sdk v2.3.39, startup runs from SYSINIT records before `main()`: the profile's board records (`board/board_overlay.c`, with `CONFIG_SYSINIT_CUSTOM_BOARD_INIT` replacing the SDK board files), C++ constructors, the scheduler, the partition table, RF, and Wi-Fi bring-up. The package then calls the Core's `arduino_bl_core_preinit()` before constructors, and SYSINIT calls the Core's `main()` from its task; `board_overlay.h` announces this with `ARDUINO_BL_SYSINIT_STARTUP`. Sketches link archives selectively, and a record whose member nothing references is dropped, so `profiles/<chip>/<profile>/sysinit_records.json` names the records each link group must carry (`keep`) and those that come only with members a sketch already uses (`on_demand`). The export fails when the package contains a record the file does not list, so review new SDK records before adding them. `tools/check_link.py sysinit` checks a sketch map against the manifest.
+
 ## Directory structure
 
 | Location | Responsibility |

@@ -1,27 +1,11 @@
 {
   "sdk": {
     "repo": "https://github.com/bouffalolab/bouffalo_sdk.git",
-    "ref": "v2.3.38",
+    "ref": "v2.3.39",
     "patches": [
-      {
-        "file": "patches/sdk/kconfig-unreleased-components.patch",
-        "sha256": "9c8b33bd0e1ede829a034c10993be66279ce8651181e66216f20da4403ff0d21"
-      },
-      {
-        "file": "patches/sdk/wl80211-ap-hidden-ssid.patch",
-        "sha256": "3c4fa25ec08b623bcf2b76838a78f0184c2d2dae76ead523f90a5cf0a29fe079"
-      },
-      {
-        "file": "patches/sdk/wl80211-lwip-ipv6-output.patch",
-        "sha256": "cb4273d07e4d3b922484e1ef867d7d631fdfc536b1440c7168556277d29ae1a4"
-      },
       {
         "file": "patches/sdk/newlib-mtimer-wall-clock.patch",
         "sha256": "1c7109516b96231a7fd4d79ae42ab1a8601698dd6ca1e62d17660e18311b7d86"
-      },
-      {
-        "file": "patches/sdk/libc-picolibc-pthread-types.patch",
-        "sha256": "d708119948723daa2115a75c19631efcef4017e2704c18207a4adfded0597ec0"
       }
     ]
   },
