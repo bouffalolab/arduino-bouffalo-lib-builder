@@ -276,6 +276,74 @@ class ForcedMembersTest(unittest.TestCase):
         self.assertEqual(forced, {"base": [("liblhal.a", "lhal_version.c.obj", "只有局部定义")]})
 
 
+class SysinitRecordsTest(unittest.TestCase):
+    """SDK v2.3.39 runs startup from static SYSINIT records. Selective sketch linking drops a
+    record whose member nobody references, so the export must retain exactly the records the
+    profile names and fail when the SDK adds or renames one.
+    """
+
+    OBJDUMP = ("In archive librfparam.a:\n\nrfparam_adapter.c.obj:     file format elf32-littleriscv\n\n"
+               "Sections:\nIdx Name          Size      VMA       LMA       File off  Algn\n"
+               "  0 .text         00000000  00000000  00000000  00000034  2**1\n"
+               " 12 .sysinit.70.00.rfparam 0000000c  00000000  00000000  00000a10  2**2\n"
+               "\nother.c.obj:     file format elf32-littleriscv\n\nSections:\n"
+               "  0 .text         00000010  00000000  00000000  00000034  2**1\n")
+
+    PACKAGE = {
+        "librfparam.a": {"rfparam_adapter.c.obj": syms(["_rfparam_init", "rfparam_cfg_get"])},
+        "liblibc.a": {"cxx_runtime.c.obj": syms(weak=["__dso_handle"])},
+        "libutils.a": {"bflb_boot2.c.obj": syms(["bflb_boot2_get_pt_config"])},
+    }
+    RECORDS = {
+        "librfparam.a": {"rfparam_adapter.c.obj": [("70.00", "rfparam")]},
+        "liblibc.a": {"cxx_runtime.c.obj": [("40.80", "cxx_runtime")]},
+        "libutils.a": {"bflb_boot2.c.obj": [("50.00", "boot2")]},
+    }
+    SPEC = {"keep": {"base": ["cxx_runtime"], "wifi": ["rfparam"], "ble": ["rfparam"]}, "on_demand": ["boot2"]}
+
+    def test_objdump_sections_parsed_per_member(self):
+        """Verify record sections are attributed to their archive member."""
+        self.assertEqual(ep.parse_sysinit_sections(self.OBJDUMP), {"rfparam_adapter.c.obj": [("70.00", "rfparam")]})
+
+    def test_shared_record_anchored_and_weak_only_member_whole_archived(self):
+        """RF is shared by Wi-Fi and BLE: anchoring its public symbol in both groups pulls the one
+        member once, while whole-archiving it in both would duplicate it in a Wi-Fi+BLE sketch.
+        The C++ constructor record's member defines only a weak symbol the Core also defines, so
+        nothing would pull it; it must be whole-archived in base."""
+        anchors, whole, entry = ep.sysinit_retention(self.RECORDS, self.PACKAGE, self.SPEC)
+        self.assertEqual(anchors, {"wifi": ["rfparam_cfg_get"], "ble": ["rfparam_cfg_get"]})
+        self.assertEqual(whole, {"base": [("liblibc.a", "cxx_runtime.c.obj", "SYSINIT 记录 40.80.cxx_runtime")]})
+        self.assertEqual(entry["on_demand"], [{"record": "boot2", "stage": "50.00", "archive": "libutils.a",
+                                               "member": "bflb_boot2.c.obj"}])
+        self.assertEqual(entry["keep"]["wifi"][0]["retain"], "-u rfparam_cfg_get")
+
+    def test_unlisted_sdk_record_rejected(self):
+        """A new SDK record would otherwise silently change startup in some sketches."""
+        spec = {"keep": {"base": ["cxx_runtime"], "wifi": ["rfparam"]}}
+        with self.assertRaisesRegex(ValueError, "unlisted \\['boot2'\\]"):
+            ep.sysinit_retention(self.RECORDS, self.PACKAGE, spec)
+
+    def test_whole_archive_record_in_two_groups_rejected(self):
+        """Whole-archiving one member in two optional groups duplicates it when both are linked."""
+        spec = {"keep": {"wifi": ["cxx_runtime", "rfparam"], "ble": ["cxx_runtime"]}, "on_demand": ["boot2"]}
+        with self.assertRaisesRegex(ValueError, "both"):
+            ep.sysinit_retention(self.RECORDS, self.PACKAGE, spec)
+
+    def test_forced_member_with_unkept_record_rejected(self):
+        """The local-only rule must not force an on-demand record, e.g. the partition loader that
+        aborts at boot, into every sketch."""
+        forced = {"base": [("libutils.a", "bflb_boot2.c.obj", "只有局部定义")]}
+        with self.assertRaisesRegex(ValueError, "not kept"):
+            ep.merge_sysinit_forced(forced, {}, self.RECORDS, self.SPEC["keep"])
+
+    def test_whole_archive_records_join_existing_forced_group(self):
+        """Verify SYSINIT members merge with members forced for other reasons."""
+        forced = {"base": [("liblibc.a", "port_memory.c.obj", "malloc")]}
+        whole = {"base": [("liblibc.a", "cxx_runtime.c.obj", "SYSINIT 记录 40.80.cxx_runtime")]}
+        merged = ep.merge_sysinit_forced(forced, whole, self.RECORDS, self.SPEC["keep"])
+        self.assertEqual([m for _, m, _ in merged["base"]], ["cxx_runtime.c.obj", "port_memory.c.obj"])
+
+
 class CheckReplaceableTest(unittest.TestCase):
     def test_unrelated_directory_is_not_deleted(self):
         """Verify unrelated directory is not deleted."""
@@ -335,6 +403,35 @@ class MapMembersTest(unittest.TestCase):
                 " .debug_info    0x0000000000000000       0x40 /p/lib/libstd.a(debug_only.o)\n")
         self.assertEqual(check_link.map_members(text),
                          {("liblibc.a", "port_memory.c.obj"), ("liblhal.a", "bflb_flash.c.obj")})
+
+
+class CheckLinkSysinitTest(unittest.TestCase):
+    """A Blink image must start the board and C++ runtime but not Wi-Fi; a Wi-Fi image must
+    also carry the Wi-Fi bring-up records, otherwise it boots without a working radio."""
+
+    MANIFEST = {"link": {"sysinit": {"keep": {
+        "base": [{"record": "cxx_runtime"}],
+        "wifi": [{"record": "rfparam"}, {"record": "wifi_start"}],
+        "ble": [{"record": "rfparam"}]}}}}
+
+    def test_records_from_memory_map(self):
+        """Verify record names come from KEEP sections in the memory map."""
+        import check_link
+        text = ("Memory Configuration\n\nLOAD /p/lib/libforce_base.a\n"
+                " .sysinit.40.80.cxx_runtime\n"
+                "                0x0000000023001000        0xc /p/lib/libforce_base.a(liblibc.a@cxx_runtime.c.obj)\n"
+                " .sysinit.70.00.rfparam\n"
+                "                0x000000002300100c        0xc /p/lib/librfparam.a(rfparam_adapter.c.obj)\n")
+        self.assertEqual(check_link.map_sysinit(text), {"cxx_runtime", "rfparam"})
+
+    def test_missing_and_foreign_records_reported(self):
+        """BLE needs RF but not Wi-Fi bring-up; base alone needs neither."""
+        import check_link
+        self.assertEqual(check_link.sysinit_problems(self.MANIFEST, {"cxx_runtime", "rfparam"}, ["ble"]), [])
+        self.assertEqual(check_link.sysinit_problems(self.MANIFEST, {"cxx_runtime", "rfparam"}, []),
+                         ["unexpected rfparam"])
+        self.assertEqual(check_link.sysinit_problems(self.MANIFEST, {"cxx_runtime", "rfparam"}, ["wifi"]),
+                         ["missing wifi_start"])
 
 
 class PostProcTest(unittest.TestCase):

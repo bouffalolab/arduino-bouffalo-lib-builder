@@ -57,6 +57,10 @@ STRONG_TYPES = set("TDBRSGA")
 WEAK_TYPES = set("WV")
 LOCAL_TYPES = set("tdbrsg")
 NM_LINE = re.compile(r"^.*\[(?P<member>[^\]]+)\]: (?P<sym>\S+) (?P<type>\S)")
+# objdump -h on an archive: a "member:     file format" line, then section rows. SYSINIT records
+# live in .sysinit.<stage>.<order>.<name> sections (SDK components/sysinit/sysinit.h).
+OBJDUMP_MEMBER = re.compile(r"^(?P<member>\S+):\s+file format ")
+SYSINIT_SECTION = re.compile(r"^\s*\d+\s+\.sysinit\.(?P<stage>[0-9a-f]{2}\.[0-9a-f]{2})\.(?P<name>\S+)\s")
 
 # Toolchain libraries in the default picolibc link; SDK components override some symbols.
 TOOLCHAIN_LIBS = ("libc.a", "libm.a", "libstdc++.a", "libgcc.a")
@@ -277,6 +281,117 @@ def archive_symbols(tools, path):
     members = subprocess.run([tools["ar"], "t", path], capture_output=True, text=True, check=True).stdout.split()
     nm = subprocess.run([tools["nm"], "-A", "-P", path], capture_output=True, text=True, check=True).stdout
     return parse_nm(nm, members)
+
+
+def parse_sysinit_sections(text):
+    """Parse objdump -h output of one archive into member -> [(stage, record name)]."""
+    table = defaultdict(list)
+    member = None
+    for line in text.splitlines():
+        m = OBJDUMP_MEMBER.match(line)
+        if m:
+            member = m.group("member")
+            continue
+        m = SYSINIT_SECTION.match(line)
+        if m and member is not None:
+            table[member].append((m.group("stage"), m.group("name")))
+    return dict(table)
+
+
+def archive_sysinit(tools, path):
+    """Read the SYSINIT record sections of every member of an archive."""
+    out = subprocess.run([tools["objdump"], "-h", path], capture_output=True, text=True, check=True).stdout
+    return parse_sysinit_sections(out)
+
+
+def sysinit_retention(records, package, spec):
+    """Decide how each SYSINIT record listed by the profile reaches sketch images.
+
+    records maps archive -> member -> [(stage, name)]; package maps archive names to parsed
+    symbols; spec is the profile's sysinit_records.json: "keep" maps link groups ("base" or a
+    link_groups.json group) to record names that must be linked whenever the group is, and
+    "on_demand" lists records that only come with members the sketch already references.
+    Selective linking drops a static record whose member nobody references, so a kept record is
+    anchored with -u on a global defined only by its member, or else its member is whole-archived
+    in that group. Every record found in the package must be listed exactly once per meaning, so
+    an SDK update that adds or renames a record fails here instead of silently changing startup.
+    Return (anchors: group -> [symbol], whole: group -> [(archive, member, reason)], manifest
+    entry describing every record and how it is retained).
+    """
+    located = {}
+    for lib in sorted(records):
+        for member, items in sorted(records[lib].items()):
+            for stage, name in items:
+                if name in located:
+                    raise ValueError("SYSINIT record %s defined twice: %s(%s), %s(%s)"
+                                     % (name, located[name][0], located[name][1], lib, member))
+                located[name] = (lib, member, stage)
+    keep = spec.get("keep", {})
+    on_demand = set(spec.get("on_demand", []))
+    listed = set(on_demand).union(*keep.values()) if keep else set(on_demand)
+    unlisted, missing = sorted(set(located) - listed), sorted(listed - set(located))
+    if unlisted or missing:
+        raise ValueError("sysinit_records.json does not match the package: unlisted %s, missing %s"
+                         % (unlisted, missing))
+    clash = sorted(set().union(*(on_demand & set(v) for v in keep.values()))) if keep else []
+    if clash:
+        raise ValueError("SYSINIT records both kept and on demand: %s" % clash)
+
+    providers = defaultdict(set)
+    for lib, table in package.items():
+        for member, syms in table.items():
+            for sym in syms["strong"]:
+                providers[sym].add((lib, member))
+    anchors, whole, whole_owner = defaultdict(set), defaultdict(dict), {}
+    entry = {"keep": {}, "on_demand": []}
+    for group in sorted(keep):
+        entry["keep"][group] = []
+        for name in keep[group]:
+            lib, member, stage = located[name]
+            unique = sorted((s for s in package[lib][member]["strong"] if providers[s] == {(lib, member)}),
+                            key=lambda s: (s.startswith("_"), s))
+            if unique:
+                anchors[group].add(unique[0])
+                retain = "-u " + unique[0]
+            else:
+                owner = whole_owner.setdefault((lib, member), group)
+                if owner != group:
+                    raise ValueError("SYSINIT record %s needs whole-archive %s(%s) in both %s and %s"
+                                     % (name, lib, member, owner, group))
+                whole[group].setdefault((lib, member), []).append("%s.%s" % (stage, name))
+                retain = "whole-archive"
+            entry["keep"][group].append({"record": name, "stage": stage, "archive": lib, "member": member,
+                                         "retain": retain})
+    for name in sorted(on_demand):
+        lib, member, stage = located[name]
+        entry["on_demand"].append({"record": name, "stage": stage, "archive": lib, "member": member})
+    return ({g: sorted(a) for g, a in anchors.items()},
+            {g: [(lib, member, "SYSINIT 记录 " + " ".join(names)) for (lib, member), names in sorted(m.items())]
+             for g, m in whole.items()},
+            entry)
+
+
+def merge_sysinit_forced(forced, whole, records, keep):
+    """Add whole-archive SYSINIT members to forced; reject a member forced into another group and
+    any forced member whose records the profile did not keep in that group."""
+    owner = {(lib, member): group for group, entries in forced.items() for lib, member, _ in entries}
+    merged = {g: list(e) for g, e in forced.items()}
+    for group, entries in whole.items():
+        for lib, member, reason in entries:
+            have = owner.get((lib, member))
+            if have is None:
+                merged.setdefault(group, []).append((lib, member, reason))
+                owner[(lib, member)] = group
+            elif have != group:
+                raise ValueError("%s(%s) is forced into %s but its SYSINIT records are kept in %s"
+                                 % (lib, member, have, group))
+    for group, entries in merged.items():
+        for lib, member, _ in entries:
+            stray = sorted(n for _, n in records.get(lib, {}).get(member, []) if n not in keep.get(group, []))
+            if stray:
+                raise ValueError("%s(%s) is forced into %s but its SYSINIT records %s are not kept there"
+                                 % (lib, member, group, stray))
+    return {g: sorted(e) for g, e in merged.items()}
 
 
 def forced_members(package, toolchain, groups):
@@ -527,14 +642,27 @@ def write_package(args, out):
                                  else shlex.split(entries[0]["command"]))[0])
     if not compiler.endswith("gcc"):
         raise ValueError("unexpected compiler: " + compiler)
-    tools = {t: str(Path(args.toolchain_bin) / (compiler[:-3] + t)) for t in ("gcc", "ar", "nm", "strip")}
+    tools = {t: str(Path(args.toolchain_bin) / (compiler[:-3] + t))
+             for t in ("gcc", "ar", "nm", "strip", "objdump")}
     groups = json.loads((project / "link_groups.json").read_text())
     if "base" in groups:
         raise ValueError("link group name 'base' is reserved")
     package_archives = {os.path.basename(a): a for a in archives}
-    forced = forced_members({n: archive_symbols(tools, a) for n, a in package_archives.items()},
+    symbols = {n: archive_symbols(tools, a) for n, a in package_archives.items()}
+    forced = forced_members(symbols,
                             {n: archive_symbols(tools, a) for n, a in toolchain_libs(tools["gcc"], ld_flags).items()},
                             groups)
+    # SYSINIT records: the profile states which must be linked per group (sysinit_records.json).
+    records = {n: r for n, r in ((n, archive_sysinit(tools, a)) for n, a in package_archives.items()) if r}
+    spec_path = project / "sysinit_records.json"
+    anchors, sysinit_entry = {}, None
+    if records or spec_path.exists():
+        spec = json.loads(spec_path.read_text())
+        unknown = sorted(set(spec.get("keep", {})) - set(groups) - {"base"})
+        if unknown:
+            raise ValueError("sysinit_records.json keeps records for unknown link groups: %s" % unknown)
+        anchors, whole_sysinit, sysinit_entry = sysinit_retention(records, symbols, spec)
+        forced = merge_sysinit_forced(forced, whole_sysinit, records, spec.get("keep", {}))
     whole = {}
     for group, members in forced.items():
         name = "libforce_%s.a" % group
@@ -542,9 +670,14 @@ def write_package(args, out):
             raise ValueError("duplicate library name: " + name)
         write_forced_archive(tools, package_archives, members, out / "lib" / name)
         whole[group] = ["-Wl,--whole-archive", "-lforce_" + group, "-Wl,--no-whole-archive"]
-    write_rsp(out / "flags" / "ld_libs", whole.get("base", []) + lib_names + system_libs)
+
+    def group_libs(group):
+        """Return a group's forced archive and record anchors for its ld_libs response file."""
+        return whole.get(group, []) + ["-Wl,-u," + a for a in anchors.get(group, [])]
+
+    write_rsp(out / "flags" / "ld_libs", group_libs("base") + lib_names + system_libs)
     for group in groups:
-        write_rsp(out / "flags" / ("ld_libs_" + group), whole.get(group, []))
+        write_rsp(out / "flags" / ("ld_libs_" + group), group_libs(group))
 
     # Linker script and INCLUDE fragments.
     ld_src = cmake_dir / "generated" / "linker.ld"
@@ -595,6 +728,7 @@ def write_package(args, out):
         "link": {
             "groups": {g: {"archives": pats, "ld_libs": "flags/ld_libs_" + g} for g, pats in groups.items()},
             "forced": {g: [{"archive": l, "member": m, "reason": r} for l, m, r in e] for g, e in forced.items()},
+            **({"sysinit": sysinit_entry} if sysinit_entry else {}),
         },
         "post_process": {"chipname": chip, "appkeys": "shared", **boot},
         "licenses": {
