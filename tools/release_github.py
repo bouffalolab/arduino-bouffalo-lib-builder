@@ -73,7 +73,7 @@ def update_index(index, prior_sha, message):
 
 
 def execute(candidate, approval, plan):
-    """Publish immutable assets first, verify HTTP, then update the master index."""
+    """Publish immutable assets first, verify their identities, then update the master index."""
     candidate = Path(candidate)
     release.verify_candidate(candidate, approval, plan["base_url"])
     previous, prior_sha = existing_index()

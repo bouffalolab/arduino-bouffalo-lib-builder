@@ -2,7 +2,10 @@
 """Host-only release tests with small fixture archives and a real loopback server."""
 
 import functools
+import hashlib
 import http.server
+import io
+import json
 import tempfile
 import threading
 import unittest
@@ -151,6 +154,77 @@ class ReleaseTests(ReleaseFixture):
         incoming["packages"][0]["tools"][0]["systems"][0]["url"] = "https://example.com/v0.2.0/tool.tar.gz"
         merged = release.merge(index, incoming)
         self.assertEqual(tool, merged["packages"][0]["tools"][0])
+
+
+class VerifyDownloadsTests(unittest.TestCase):
+    """Publication must still check each asset's size and SHA-256 without re-downloading
+    GitHub Release assets. gh API answers and downloads are test doubles."""
+
+    RELEASE = "https://github.com/bouffalolab/arduino-bouffalo/releases/download/v0.2.0/"
+
+    @staticmethod
+    def entry(url, payload):
+        """Describe an asset as the index would for the given bytes."""
+        return {"url": url, "size": str(len(payload)),
+                "checksum": "SHA-256:" + hashlib.sha256(payload).hexdigest()}
+
+    @staticmethod
+    def index(*entries):
+        """Wrap download descriptors as host-tool systems of one package."""
+        return {"packages": [{"platforms": [], "tools": [{"systems": list(entries)}]}]}
+
+    @staticmethod
+    def asset(url, payload, digest=True):
+        """Return GitHub's metadata for an uploaded asset; old uploads may lack a digest."""
+        return {"browser_download_url": url, "size": len(payload),
+                "digest": "sha256:" + hashlib.sha256(payload).hexdigest() if digest else None}
+
+    def verify(self, index, assets, downloads=None):
+        """Run verify_downloads; return the gh API calls and the URLs actually downloaded."""
+        api, fetched = [], []
+
+        def gh(args, text):
+            """Answer the release lookup with the given asset metadata."""
+            api.append(args)
+            return json.dumps({"assets": assets})
+
+        def urlopen(url, timeout):
+            """Serve test bytes and record that a download happened."""
+            fetched.append(url)
+            return io.BytesIO((downloads or {})[url])
+
+        with patch("release.subprocess.check_output", side_effect=gh), \
+                patch("release.urlopen", side_effect=urlopen):
+            release.verify_downloads(index)
+        return api, fetched
+
+    def test_github_assets_use_api_metadata_without_download(self):
+        """One API call covers a release; a URL listed twice is checked once, never fetched."""
+        platform, tool = self.RELEASE + "platform.tar.gz", self.RELEASE + "tool.tar.gz"
+        api, fetched = self.verify(
+            self.index(self.entry(platform, b"platform"), self.entry(tool, b"tool"),
+                       self.entry(tool, b"tool")),
+            [self.asset(platform, b"platform"), self.asset(tool, b"tool")])
+        self.assertEqual([["gh", "api", "repos/bouffalolab/arduino-bouffalo/releases/tags/v0.2.0"]], api)
+        self.assertEqual([], fetched)
+
+    def test_size_or_digest_mismatch_is_rejected(self):
+        """An index entry that disagrees with GitHub's metadata must not be published."""
+        url = self.RELEASE + "tool.tar.gz"
+        for published in ({**self.asset(url, b"tool"), "size": 5},
+                          self.asset(url, b"other bytes")):
+            with self.assertRaisesRegex(ValueError, "download identity mismatch"):
+                self.verify(self.index(self.entry(url, b"tool")), [published])
+
+    def test_asset_without_digest_is_downloaded_once(self):
+        """Without GitHub's digest the bytes are fetched and hashed, once per URL."""
+        url = self.RELEASE + "old.tar.gz"
+        assets = [self.asset(url, b"old", digest=False)]
+        _, fetched = self.verify(self.index(self.entry(url, b"old"), self.entry(url, b"old")),
+                                 assets, {url: b"old"})
+        self.assertEqual([url], fetched)
+        with self.assertRaisesRegex(ValueError, "download identity mismatch"):
+            self.verify(self.index(self.entry(url, b"old")), assets, {url: b"changed"})
 
 
 if __name__ == "__main__":

@@ -10,12 +10,15 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
+import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
 INDEX = "package_bouffalolab_index.json"
+GITHUB_ASSET = re.compile(r"https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/[^/]+")
 GATES = ("ARDUINO-52", "ARDUINO-53", "ARDUINO-54", "ARDUINO-55",
          "ARDUINO-57", "ARDUINO-58", "ARDUINO-59")
 
@@ -74,17 +77,47 @@ def freeze(candidate):
     return digest(candidate / "candidate.json")
 
 
+def github_release(repository, tag):
+    """Read one published GitHub Release, including asset metadata, through the gh login."""
+    return json.loads(subprocess.check_output(
+        ["gh", "api", "repos/%s/releases/tags/%s" % (repository, tag)], text=True))
+
+
+def remote_identity(url, releases):
+    """Return (size, checksum) of one asset; releases caches GitHub API answers per tag.
+
+    A GitHub Release asset uses the size and SHA-256 digest GitHub computed at upload.
+    Other URLs, and assets without a digest, are downloaded and hashed.
+    """
+    match = GITHUB_ASSET.fullmatch(url)
+    if match:
+        if match.groups() not in releases:
+            releases[match.groups()] = github_release(*match.groups())["assets"]
+        asset = next((a for a in releases[match.groups()] if a["browser_download_url"] == url), None)
+        if asset and (asset.get("digest") or "").startswith("sha256:"):
+            return asset["size"], "SHA-256:" + asset["digest"][len("sha256:"):]
+    h = hashlib.sha256()
+    size = 0
+    with urlopen(url, timeout=120) as response:
+        for block in iter(lambda: response.read(1024 * 1024), b""):
+            size += len(block)
+            h.update(block)
+    return size, "SHA-256:" + h.hexdigest()
+
+
 def verify_downloads(index):
-    """GET and hash every real HTTP asset before allowing an index update."""
+    """Check the size and SHA-256 of every indexed asset before allowing an index update.
+
+    Each URL is checked once. GitHub Release assets are not downloaded; the platform's
+    public-install workflow exercises the actual download path after publication.
+    """
+    releases, identities = {}, {}
     for entry in archives(index):
-        h = hashlib.sha256()
-        size = 0
-        with urlopen(entry["url"], timeout=120) as response:
-            for block in iter(lambda: response.read(1024 * 1024), b""):
-                size += len(block)
-                h.update(block)
-        if entry["checksum"] != "SHA-256:" + h.hexdigest() or size != int(entry["size"]):
-            raise ValueError("download identity mismatch: " + entry["url"])
+        url = entry["url"]
+        if url not in identities:
+            identities[url] = remote_identity(url, releases)
+        if identities[url] != (int(entry["size"]), entry["checksum"]):
+            raise ValueError("download identity mismatch: " + url)
 
 
 def merge(previous, incoming):
@@ -179,7 +212,7 @@ def promote(candidate, approval_path, target, base_url):
 
 
 def restore(snapshot, target):
-    """Restore a previous index only after its retained assets pass HTTP verification."""
+    """Restore a previous index only after its retained assets pass verify_downloads."""
     index = load(snapshot)
     verify_downloads(index)
     return replace_index(target, index)

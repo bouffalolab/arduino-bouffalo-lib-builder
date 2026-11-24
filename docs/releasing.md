@@ -103,10 +103,15 @@ python3 tools/release_github.py --candidate /absolute/path/to/candidate \
 
 The adapter reads the current master index, rejects changed versions, creates a
 draft against the approved source commit, uploads missing archives, verifies any
-existing assets instead of overwriting them, publishes the release, GETs all indexed
-assets and checks their hashes, then commits the merged index to master. A failed
-asset or HTTP check leaves the previous index unchanged. A draft or published release
-may remain and can be retried; published assets are never silently overwritten.
+existing assets instead of overwriting them, publishes the release, checks the size
+and SHA-256 of every indexed asset, then commits the merged index to master. GitHub
+Release assets are checked against the size and digest GitHub computed at upload,
+without downloading them; other URLs and assets without a digest are downloaded and
+hashed. A failed asset check leaves the previous index unchanged. A draft or published
+release may remain and can be retried; published assets are never silently overwritten.
+The index commit triggers the platform's `public-install` workflow, which installs from
+that index into an empty Arduino CLI environment on a GitHub runner and compiles test
+sketches, exercising the actual downloads.
 Use the maintainers' existing `gh` and Git credentials; CI has no publishing token.
 Actual GitHub publication is deliberately not exercised before ARDUINO-56.
 
